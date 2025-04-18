@@ -1,0 +1,10 @@
+# Fichiers Python inutiles
+__pycache__/
+*.py[cod]
+*.pyo
+
+# VS Code
+.vscode/
+
+data/*
+output/*
