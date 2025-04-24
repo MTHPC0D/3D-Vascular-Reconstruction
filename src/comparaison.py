@@ -4,7 +4,7 @@ import trimesh
 import matplotlib.pyplot as plt
 
 # === PARAMÈTRES ===
-recon_path = "output/levelSet_hom_align.stl"
+recon_path = "output/reconstruction_aligned2.stl"
 gt_path = "data/gt_stl/01/01_AORTE_arteries.stl"
 output_color_mesh_path = "output/levelSet_error_colored.ply"
 output_error_img = "output/levelSet_error.png"
@@ -38,24 +38,24 @@ distances = np.asarray(distances)
 print("✅ Comparaison terminée")
 print(f"→ Distance moyenne (RMS): {np.mean(distances):.3f} mm")
 print(f"→ Distance max (Hausdorff approx): {np.max(distances):.3f} mm")
-print(f"→ Distance médiane: {np.median(distances):.3f} mm")
 
 # Volume et surface (avec trimesh)
 tm_pred = trimesh.load_mesh(recon_path)
 tm_gt = trimesh.load_mesh(gt_path)
-print(f"→ Volume reconstruction: {tm_pred.volume:.2f} mm³")
-print(f"→ Volume GT: {tm_gt.volume:.2f} mm³")
-print(f"→ Surface reconstruction: {tm_pred.area:.2f} mm²")
-print(f"→ Surface GT: {tm_gt.area:.2f} mm²")
 print(f"→ Ratio volume (Recon/GT): {tm_pred.volume / tm_gt.volume:.3f}")
+
+# === 5b. Dice score (approximation surfacique)
+dice_threshold = 1.0  # mm, à ajuster selon la précision voulue
+A_in_B = np.sum(distances < dice_threshold)
+distances_gt = points_gt.compute_point_cloud_distance(points_pred)
+distances_gt = np.asarray(distances_gt)
+B_in_A = np.sum(distances_gt < dice_threshold)
+dice = 2 * (A_in_B + B_in_A) / (len(points_pred.points) + len(points_gt.points))
+print(f"→ Dice score (surface, seuil {dice_threshold} mm): {dice:.3f}")
 
 # === 6. Visualisation colorée des erreurs sur le maillage reconstruit
 colors = plt.cm.jet((distances - distances.min()) / (distances.max() - distances.min()))[:, :3]
 points_pred.colors = o3d.utility.Vector3dVector(colors)
-
-# === 7. Sauvegarde du modèle coloré
-o3d.io.write_point_cloud(output_color_mesh_path, points_pred)
-print(f"🟦 Fichier des erreurs colorées sauvegardé : {output_color_mesh_path}")
 
 # === 8. Sauvegarde d'une image PNG de la visualisation
 vis = o3d.visualization.Visualizer()
