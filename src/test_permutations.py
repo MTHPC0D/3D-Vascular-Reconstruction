@@ -2,6 +2,7 @@ import trimesh
 import numpy as np
 from itertools import permutations, product
 from scipy.spatial.transform import Rotation as R
+import sys
 
 # === CHEMINS DES FICHIERS ===
 recon_path = "output/levelSet_hom.stl"
@@ -23,8 +24,17 @@ print("=== TEST DES PERMUTATIONS ET INVERSIONS D'AXES ===")
 best = None
 best_score = float('inf')
 
+total = len(axes_perms) * len(signs)
+def progress_bar(j, total, size=40):
+    x = int(size*j/total)
+    sys.stdout.write("[%s%s] %i/%i\r" % ("#"*x, "."*(size-x), j, total))
+    sys.stdout.flush()
+
+count = 0
 for perm in axes_perms:
     for sign in signs:
+        count += 1
+        progress_bar(count, total)
         verts = verts_orig[:, perm] * sign
         mesh_recon = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
         center_recon = mesh_recon.bounding_box.centroid
