@@ -4,7 +4,7 @@ import trimesh
 import matplotlib.pyplot as plt
 
 # === PARAMÈTRES ===
-recon_path = "output/reconstruction_aligned2.stl"
+recon_path = "output/levelSet_hom_align.stl"
 gt_path = "data/gt_stl/01/01_AORTE_arteries.stl"
 output_color_mesh_path = "output/levelSet_error_colored.ply"
 output_error_img = "output/levelSet_error.png"
@@ -52,6 +52,16 @@ distances_gt = np.asarray(distances_gt)
 B_in_A = np.sum(distances_gt < dice_threshold)
 dice = 2 * (A_in_B + B_in_A) / (len(points_pred.points) + len(points_gt.points))
 print(f"→ Dice score (surface, seuil {dice_threshold} mm): {dice:.3f}")
+
+# === Sauvegarde des métriques dans un fichier texte ===
+metrics_txt_path = "output/levelSet_metrics.txt"
+with open(metrics_txt_path, "w") as f:
+    f.write("Comparaison de maillages\n")
+    f.write(f"Distance moyenne (RMS): {np.mean(distances):.3f} mm\n")
+    f.write(f"Distance max (Hausdorff approx): {np.max(distances):.3f} mm\n")
+    f.write(f"Ratio volume (Recon/GT): {tm_pred.volume / tm_gt.volume:.3f}\n")
+    f.write(f"Dice score (surface, seuil {dice_threshold} mm): {dice:.3f}\n")
+print(f"📝 Fichier métriques sauvegardé : {metrics_txt_path}")
 
 # === 6. Visualisation colorée des erreurs sur le maillage reconstruit
 colors = plt.cm.jet((distances - distances.min()) / (distances.max() - distances.min()))[:, :3]
