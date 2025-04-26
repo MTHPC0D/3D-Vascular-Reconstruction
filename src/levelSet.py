@@ -1,97 +1,115 @@
-import os
-import SimpleITK as sitk
-import numpy as np
-import vtk
-from vtkmodules.util.numpy_support import numpy_to_vtk
-import trimesh
-import open3d as o3d
+#!/usr/bin/env python3
+"""
+recon_align.py
+--------------
+Pipeline :
+1. lecture NIfTI   → volume binaire
+2. reconstruction  → Level-set + Marching-Cubes
+3. application de l’affine du NIfTI
+4. pré-alignement  → PCA (rigide)
+5. affinement      → ICP (rigide)
+6. métriques       → Dice (ensembles de voxels) + RMS surfacique
+7. écriture STL aligné
+"""
 
-print("[INFO] Chargement et resampling de l'image NIfTI...")
-# === PARAMÈTRES ===
-nii_seg_path = "data/2Dslices/01/label.nii"  # segmentation binaire
-output_stl_path = "output/levelSet_hom_align.stl"
-desired_spacing = [0.5, 0.5, 0.5]  # isotrope en mm
+import sys, json, numpy as np, nibabel as nib, open3d as o3d, trimesh as tm
+from skimage.measure import marching_cubes
+from scipy.spatial.transform import Rotation as R
 
-# === 1. Chargement et resampling isotrope ===
-img = sitk.ReadImage(nii_seg_path)
-resampler = sitk.ResampleImageFilter()
-resampler.SetOutputSpacing(desired_spacing)
-resampler.SetSize([int(sz*spc/dsp) for sz, spc, dsp in zip(img.GetSize(), img.GetSpacing(), desired_spacing)])
-resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-resampler.SetOutputDirection(img.GetDirection())
-resampler.SetOutputOrigin(img.GetOrigin())
-resampled_img = resampler.Execute(img)
+# ---------- 1. chargement NIfTI ------------------------------------------------
+def load_nifti(path):
+    nii = nib.load(path)
+    return nii.get_fdata().astype(np.float32), nii.affine          # volume, affine 4×4
 
-print("[INFO] Evolution level-set via morphologie...")
-# === 2. Évolution level-set via morphologie (Morphological Chan-Vese approximation) ===
-levelset = sitk.BinaryMorphologicalClosing(resampled_img, [1]*3)
-levelset = sitk.BinaryFillhole(levelset)
-levelset = sitk.BinaryDilate(levelset, [1]*3)  # expansion du contour
-levelset = sitk.SignedMaurerDistanceMap(levelset, insideIsPositive=True, useImageSpacing=True)
+# ---------- 2. reconstruction level-set (ici simple isosurface pour la démo) --
+def levelset_to_mesh(vol, iso=0.5):
+    verts, faces, _, _ = marching_cubes(vol, level=iso, spacing=(1, 1, 1))
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(verts)
+    mesh.triangles = o3d.utility.Vector3iVector(faces)
+    mesh.remove_duplicated_vertices()
+    mesh.compute_vertex_normals()
+    return mesh
 
-print("[INFO] Extraction de surface (marching cubes)...")
-# === 3. Extraction de surface (marching cubes) ===
-def sitk_to_vtk_image(sitk_img):
-    arr = sitk.GetArrayFromImage(sitk_img).astype(np.float32)
-    vtk_img = vtk.vtkImageData()
-    vtk_img.SetDimensions(arr.shape[2], arr.shape[1], arr.shape[0])
-    vtk_arr = numpy_to_vtk(arr.ravel(), deep=True, array_type=vtk.VTK_FLOAT)
-    vtk_img.GetPointData().SetScalars(vtk_arr)
-    spacing = sitk_img.GetSpacing()
-    origin = sitk_img.GetOrigin()
-    vtk_img.SetSpacing(spacing)
-    vtk_img.SetOrigin(origin)
-    return vtk_img
+# ---------- 3. appliquer l’affine ---------------------------------------------
+def apply_affine(mesh, affine):
+    v = np.asarray(mesh.vertices)
+    v_h = np.c_[v, np.ones(len(v))]
+    mesh.vertices = o3d.utility.Vector3dVector((affine @ v_h.T).T[:, :3])
+    return mesh
 
-vtk_image = sitk_to_vtk_image(levelset)
+# ---------- 4a. PCA rigide (rotation 3×3) --------------------------------------
+def pca_axes(pts):
+    pts_c = pts - pts.mean(0)
+    cov   = np.cov(pts_c.T)             # 3×3
+    w, V  = np.linalg.eigh(cov)
+    return V[:, w.argsort()[::-1]]      # colonnes = axes triés desc.
 
-mc = vtk.vtkMarchingCubes()
-mc.SetInputData(vtk_image)
-mc.SetValue(0, 0.0)  # isosurface = zéro (contour)
-mc.Update()
+def pca_prealign(src, tgt):
+    R_src = pca_axes(np.asarray(src.vertices))
+    R_tgt = pca_axes(np.asarray(tgt.vertices))
+    rot   = R_tgt @ R_src.T             # matrice 3×3
+    src.rotate(rot, center=np.zeros(3))
+    return src
 
-print("[INFO] Chargement du mesh GT pour l'échelle...")
-# === 4. Mise à l'échelle pour correspondre au GT ===
-# Charger le mesh GT
-mesh_gt = trimesh.load_mesh("data/gt_stl/01/01_AORTE_arteries.stl")
-bbox_gt = mesh_gt.bounding_box.extents
+# ---------- 4b. ICP fin --------------------------------------------------------
+def icp_align(src, tgt, thresh=2.0, iters=100):
+    p_src = o3d.geometry.PointCloud(src.vertices)
+    p_tgt = o3d.geometry.PointCloud(tgt.vertices)
+    reg   = o3d.pipelines.registration.registration_icp(
+        p_src, p_tgt, thresh, np.eye(4),
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=iters)
+    )
+    src.transform(reg.transformation)
+    return src
 
-print("[INFO] Application de la permutation optimale...")
-# Appliquer la permutation optimale trouvée dans test_permutations.py
-verts = np.array(mc.GetOutput().GetPoints().GetData())
-verts = verts[:, [2, 0, 1]]  # permutation (2, 0, 1), signe (1, 1, 1)
+# ---------- 5a. RMS surfacique -----------------------------------------------
+def rms_dist(a, b):
+    pa, pb = o3d.geometry.PointCloud(a.vertices), o3d.geometry.PointCloud(b.vertices)
+    d1 = np.asarray(pa.compute_point_cloud_distance(pb))
+    d2 = np.asarray(pb.compute_point_cloud_distance(pa))
+    return float(np.sqrt((d1**2).mean() + (d2**2).mean()) / 2)
 
-print("[INFO] Calcul des bounding boxes et ratios d'échelle...")
-# Calculer la bounding box du mesh reconstruit (marching cubes)
-mesh_recon = trimesh.Trimesh(
-    vertices=verts,
-    faces=np.array([mc.GetOutput().GetPolys().GetData()]).reshape(-1, 4)[:, 1:4],
-    process=False
-)
-bbox_recon = mesh_recon.bounding_box.extents
+# ---------- 5b. Dice via ensembles de voxels ----------------------------------
+def voxel_set(mesh, pitch=1.0):
+    vox = tm.voxel.creation.voxelize(tm.Trimesh(vertices=np.asarray(mesh.vertices),
+                                               faces=np.asarray(mesh.triangles)),
+                                     pitch=pitch, method='subdivide')
+    return {tuple(idx) for idx in vox.sparse_indices}
 
-# Calculer le ratio d'échelle (GT/recon) pour chaque axe
-scale_ratios = bbox_gt / bbox_recon
+def dice_sets(A, B):
+    inter = len(A & B)
+    return 2.0 * inter / (len(A) + len(B)) if (A or B) else 0.0
 
-# Affichage des bounding boxes pour debug échelle
-print("\n=== DEBUG BOUNDING BOXES ===")
-print(f"bbox_recon (avant scale): {bbox_recon}")
-print(f"bbox_gt: {bbox_gt}")
-print(f"scale_ratios: {scale_ratios}")
+# ---------- 6. pipeline complet -----------------------------------------------
+def main(nii_path, stl_ref_path, stl_out_path,
+         iso=0.5, pitch=2.0, icp_thresh=2.0, icp_iter=100):
 
-print("[INFO] Application du scale au mesh VTK...")
-# Appliquer le scale au mesh VTK
-transform = vtk.vtkTransform()
-transform.Scale(scale_ratios[0], scale_ratios[1], scale_ratios[2])
-transformFilter = vtk.vtkTransformPolyDataFilter()
-transformFilter.SetInputData(mc.GetOutput())
-transformFilter.SetTransform(transform)
-transformFilter.Update()
+    # 1-2 reconstruction
+    vol, affine = load_nifti(nii_path)
+    mesh        = levelset_to_mesh(vol, iso)
+    mesh        = apply_affine(mesh, affine)
 
-print("[INFO] Export STL homogénéisé (échelle seulement)...")
-# Export STL homogénéisé (échelle seulement, pas d'alignement spatial)
-stl_writer = vtk.vtkSTLWriter()
-stl_writer.SetFileName("output/levelSet_hom.stl")
-stl_writer.SetInputData(transformFilter.GetOutput())
-stl_writer.Write()
-print(f"✅ Maillage STL homogénéisé (échelle) : output/levelSet_hom.stl")
+    # 3 lecture référence
+    ref_mesh = o3d.io.read_triangle_mesh(stl_ref_path)
+    mesh.translate(-mesh.get_center())
+    ref_mesh.translate(-ref_mesh.get_center())
+
+    # 4 alignement rigide (PCA + ICP)
+    mesh = pca_prealign(mesh, ref_mesh)
+    mesh = icp_align(mesh, ref_mesh, icp_thresh, icp_iter)
+
+    # 5 métriques
+    dice = dice_sets(voxel_set(mesh, pitch), voxel_set(ref_mesh, pitch))
+    rms  = rms_dist(mesh, ref_mesh)
+
+    # 6 écriture
+    o3d.io.write_triangle_mesh(stl_out_path, mesh)
+    print(json.dumps({"dice": dice, "rms_mm": rms}))
+
+# ---------- exécution CLI ------------------------------------------------------
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        sys.exit("usage : python recon_align.py recon.nii.gz ref.stl aligned_out.stl")
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
