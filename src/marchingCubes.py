@@ -5,7 +5,7 @@ import vtk
 from vtkmodules.util.numpy_support import numpy_to_vtk
 
 # === PARAMÈTRES ===
-nii_seg_path = "data/2Dslices/01/label.nii"  # segmentation binaire
+nii_seg_path = "data/2Dslices/02/02_label.nii"  # segmentation binaire
 output_stl_path = "output/marginCube.stl"
 desired_spacing = [0.5, 0.5, 0.5]  # voxels isotropes
 

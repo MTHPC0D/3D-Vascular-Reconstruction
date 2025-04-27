@@ -4,7 +4,7 @@ import open3d as o3d
 from scipy.spatial.transform import Rotation as R
 
 # === PARAMÈTRES ===
-recon_path = "output/maillage_aligne.stl"  # mesh reconstruit à la bonne échelle
+recon_path = "output/maillageAligné.stl"  # mesh reconstruit à la bonne échelle
 gt_path = "data/gt_stl/01/01_AORTE_arteries.stl"
 output_aligned_path = "output/levelSet_hom_align5.stl"
 
