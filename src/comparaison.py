@@ -5,10 +5,8 @@ import matplotlib.pyplot as plt
 import os
 
 # === PARAMÈTRES ===
-recon_path = "output/levelSet_hom_align5.stl"
-gt_path = "data/gt_stl/01/01_AORTE_arteries.stl"
-output_color_mesh_path = "output/levelSet_error_colored.ply"
-output_error_img = "output/levelSet_error.png"
+recon_path = "output_final.stl"
+gt_path = "data/01/arteres.stl"
 
 def compare_meshes():
     # === 1. Chargement des deux maillages
@@ -60,22 +58,13 @@ def compare_meshes():
     colors = plt.cm.jet((distances - distances.min()) / (distances.max() - distances.min()))[:, :3]
     points_pred.colors = o3d.utility.Vector3dVector(colors)
 
-    # Assurez-vous que le répertoire de sortie existe
-    os.makedirs(os.path.dirname(os.path.abspath(output_error_img)), exist_ok=True)
-    
     # === 8. Sauvegarde d'une image PNG de la visualisation
     vis = o3d.visualization.Visualizer()
     vis.create_window(visible=False)
     vis.add_geometry(points_pred)
     vis.poll_events()
     vis.update_renderer()
-    vis.capture_screen_image(output_error_img)
     vis.destroy_window()
-    print(f"🖼️ Image PNG sauvegardée : {output_error_img}")
-
-    # Sauvegarder le nuage de points coloré
-    o3d.io.write_point_cloud(output_color_mesh_path, points_pred)
-    print(f"🖼️ Nuage de points coloré sauvegardé : {output_color_mesh_path}")
     
     results = {
         "rms_distance": np.mean(distances),
@@ -85,4 +74,9 @@ def compare_meshes():
     }
     
     return results
+
+# Ajoutez ceci pour exécuter la comparaison si le script est lancé directement
+if __name__ == "__main__":
+    results = compare_meshes()
+    print("Résultats:", results)
 
