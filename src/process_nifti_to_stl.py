@@ -51,6 +51,7 @@ def main():
 
     print("3. Rotation de 180° autour de Z...")
     mesh = rotation_z_180(mesh)
+    print(f"Mesh généré : {len(mesh.vertices)} sommets, {len(mesh.triangles)} triangles")
 
     print(f"4. Sauvegarde du mesh aligné et rotationné : {args.out}")
     o3d.io.write_triangle_mesh(args.out, mesh)

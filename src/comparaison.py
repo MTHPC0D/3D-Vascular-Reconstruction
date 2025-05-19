@@ -3,10 +3,15 @@ import numpy as np
 import trimesh
 import matplotlib.pyplot as plt
 import os
+import argparse
 
 # === PARAMÈTRES ===
-recon_path = "output_final.stl"
-gt_path = "data/01/arteres.stl"
+parser = argparse.ArgumentParser(description="Comparaison de deux meshes")
+parser.add_argument('--recon', required=True, help='Chemin du mesh reconstruit')
+parser.add_argument('--gt', required=True, help='Chemin du mesh ground truth')
+args = parser.parse_args()
+recon_path = args.recon
+gt_path = args.gt
 
 def compare_meshes():
     # === 1. Chargement des deux maillages

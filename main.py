@@ -14,15 +14,16 @@ def run_process_nifti_to_stl(nifti_path, gt_path, out_path, poisson_depth=8, seu
     print("Lancement de la génération du mesh...")
     subprocess.run(cmd, check=True)
 
-def run_comparaison():
-    cmd = [sys.executable, os.path.join("src", "comparaison.py")]
+def run_comparaison(recon_path, gt_path):
+    cmd = [sys.executable, os.path.join("src", "comparaison.py"), "--recon", recon_path, "--gt", gt_path]
     print("Lancement de la comparaison des meshes...")
     subprocess.run(cmd, check=True)
 
 if __name__ == "__main__":
-    nifti_path = "data/07/label.nii"
-    gt_path = "data/07/arteres.stl"
+    num = "07" 
+    nifti_path = f"data/{num}/label.nii"
+    gt_path = f"data/{num}/arteres.stl"
     out_path = "output/output_final.stl"
 
     run_process_nifti_to_stl(nifti_path, gt_path, out_path)
-    run_comparaison()
+    run_comparaison(out_path, gt_path)
