@@ -1,298 +1,136 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+"""
+Extraction automatique des centre-lines d’un maillage vasculaire fermé
+---------------------------------------------------------------------
 
-import os
-import sys
+Usage :
+    python extract_centerlines.py --input vessel.stl \
+                                  --output centerlines.vtp \
+                                  --spacing 0.4
+    (la résolution « spacing » est en mm ; défaut = 0.5)
+"""
+
 import argparse
-import subprocess
 import vtk
-import traceback
+import numpy as np
+from vtk.util import numpy_support
+import itk
+from vmtk import vmtkscripts
+import SimpleITK as sitk
 
-# Essayons d'importer les modules VMTK directement
+# ---------- Arguments CLI ----------
+parser = argparse.ArgumentParser(description='Center-line extraction from a closed STL mesh')
+parser.add_argument('-i', '--input',  required=True, help='Maillage entrée (.stl ou .vtp)')
+parser.add_argument('-o', '--output', required=True, help='Fichier centre-lines (.vtp)')
+parser.add_argument('-s', '--spacing', type=float, default=0.5,
+                    help='Résolution isotrope voxel (mm). Défaut = 0.5')
+args = parser.parse_args()
+
 try:
-    from vmtk import vmtkscripts
-    VMTK_AVAILABLE = True
-except ImportError:
-    VMTK_AVAILABLE = False
-    print("AVERTISSEMENT: Impossible d'importer les modules VMTK directement.")
-    print("Assurez-vous que VMTK est correctement installé et accessible.")
-
-def run_vmtk_command(command):
-    """
-    Run a VMTK command using subprocess
-    
-    Parameters:
-    -----------
-    command : str
-        VMTK command to run
-    
-    Returns:
-    --------
-    int
-        Return code of the command
-    """
-    print(f"Running command: {command}")
-    
-    # Essayer d'exécuter la commande avec le préfixe python -m vmtk
-    try:
-        result = subprocess.run(f"python -m vmtk {command}", shell=True)
-        return result.returncode
-    except Exception as e:
-        print(f"Erreur lors de l'exécution de la commande: {e}")
-        traceback.print_exc()
-        return 1
-
-def convert_stl_to_vtp_using_vtk(stl_file, vtp_file=None):
-    """
-    Convert an STL file to VTP format using VTK directly.
-    
-    Parameters:
-    -----------
-    stl_file : str
-        Path to the input STL file
-    vtp_file : str, optional
-        Path to save the VTP file. If None, uses the same name with .vtp extension
-    
-    Returns:
-    --------
-    str
-        Path to the generated VTP file
-    """
-    if vtp_file is None:
-        vtp_file = os.path.splitext(stl_file)[0] + '.vtp'
-    
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(vtp_file)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Created output directory: {output_dir}")
-    
-    try:
-        # Read STL file
-        reader = vtk.vtkSTLReader()
-        reader.SetFileName(stl_file)
+    print("Étape 1 : lecture maillage")
+    # ---------- Lecture du maillage ----------
+    def read_polydata(path):
+        if path.lower().endswith('.stl'):
+            reader = vtk.vtkSTLReader()
+        elif path.lower().endswith(('.vtp', '.xml', '.vtk')):
+            reader = vtk.vtkXMLPolyDataReader()
+        else:
+            raise ValueError('Format non supporté : %s' % path)
+        reader.SetFileName(path)
         reader.Update()
-        
-        # Write to VTP format
-        writer = vtk.vtkXMLPolyDataWriter()
-        writer.SetFileName(vtp_file)
-        writer.SetInputConnection(reader.GetOutputPort())
-        writer.Write()
-        
-        print(f"Converted STL file to VTP using VTK: {vtp_file}")
-        return vtp_file
-    except Exception as e:
-        print(f"Erreur lors de la conversion STL vers VTP: {e}")
-        traceback.print_exc()
-        return None
+        return reader.GetOutput()
 
-def convert_stl_to_vtp(stl_file, vtp_file=None):
-    """
-    Convert an STL file to VTP format using VMTK or VTK.
-    
-    Parameters:
-    -----------
-    stl_file : str
-        Path to the input STL file
-    vtp_file : str, optional
-        Path to save the VTP file. If None, uses the same name with .vtp extension
-    
-    Returns:
-    --------
-    str
-        Path to the generated VTP file
-    """
-    if vtp_file is None:
-        vtp_file = os.path.splitext(stl_file)[0] + '.vtp'
-    
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(vtp_file)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Created output directory: {output_dir}")
-    
-    if VMTK_AVAILABLE:
-        try:
-            # Utilisation directe de l'API VMTK
-            reader = vmtkscripts.vmtkSurfaceReader()
-            reader.InputFileName = stl_file
-            reader.Execute()
-            
-            writer = vmtkscripts.vmtkSurfaceWriter()
-            writer.Surface = reader.Surface
-            writer.OutputFileName = vtp_file
-            writer.Execute()
-            
-            print(f"Converted STL file to VTP using VMTK API: {vtp_file}")
-            return vtp_file
-        except Exception as e:
-            print(f"Erreur lors de l'utilisation de l'API VMTK: {e}")
-            print("Essai de conversion avec VTK...")
-            return convert_stl_to_vtp_using_vtk(stl_file, vtp_file)
-    else:
-        # Si VMTK n'est pas disponible, utiliser VTK directement
-        return convert_stl_to_vtp_using_vtk(stl_file, vtp_file)
+    polydata = read_polydata(args.input)
 
-def extract_centerlines_manual(input_file, output_file, endpoints=1, render_results=False):
-    """
-    Extract centerlines using manual selection of source and target points.
-    
-    Parameters:
-    -----------
-    input_file : str
-        Path to the input surface model file (typically .vtp format)
-    output_file : str
-        Path to save the extracted centerlines
-    endpoints : int
-        Whether to append the segments from sources and targets to their poles (1) or not (0)
-    render_results : bool
-        Whether to render the results after extraction
-    """
-    if VMTK_AVAILABLE:
-        try:
-            # Utilisation directe de l'API VMTK
-            reader = vmtkscripts.vmtkSurfaceReader()
-            reader.InputFileName = input_file
-            reader.Execute()
-            
-            centerlines = vmtkscripts.vmtkCenterlines()
-            centerlines.Surface = reader.Surface
-            centerlines.AppendEndPoints = endpoints
-            centerlines.Execute()
-            
-            writer = vmtkscripts.vmtkSurfaceWriter()
-            writer.Surface = centerlines.Centerlines
-            writer.OutputFileName = output_file
-            writer.Execute()
-            
-            if render_results:
-                renderer = vmtkscripts.vmtkRenderer()
-                renderer.Execute()
-                
-                surfaceViewer = vmtkscripts.vmtkSurfaceViewer()
-                surfaceViewer.Surface = reader.Surface
-                surfaceViewer.Opacity = 0.25
-                surfaceViewer.vmtkRenderer = renderer
-                surfaceViewer.Execute()
-                
-                centerlineViewer = vmtkscripts.vmtkSurfaceViewer()
-                centerlineViewer.Surface = centerlines.Centerlines
-                centerlineViewer.vmtkRenderer = renderer
-                centerlineViewer.Execute()
-                
-                renderer.Deallocate()
-            
-            return True
-        except Exception as e:
-            print(f"Erreur lors de l'extraction des centerlines avec l'API VMTK: {e}")
-            traceback.print_exc()
-            return False
-    else:
-        print("VMTK n'est pas disponible pour l'extraction des centerlines.")
-        return False
+    print("Étape 2 : voxelisation")
+    # ---------- Voxelisation ----------
+    spacing = [args.spacing]*3
+    bounds  = polydata.GetBounds()                 # xmin,xmax, ymin,ymax, zmin,zmax
+    dims    = [int((bounds[2*i+1]-bounds[2*i])/spacing[i]) + 1 for i in range(3)]
 
-def extract_centerlines_openprofiles(input_file, output_file, endpoints=1, render_results=False):
-    """
-    Extract centerlines using automatic detection of open profiles.
-    
-    Parameters:
-    -----------
-    input_file : str
-        Path to the input surface model file (typically .vtp format)
-    output_file : str
-        Path to save the extracted centerlines
-    endpoints : int
-        Whether to append the segments from sources and targets to their poles (1) or not (0)
-    render_results : bool
-        Whether to render the results after extraction
-    """
-    # Create the VMTK command with openprofiles selector
-    command = f'vmtkcenterlines -seedselector openprofiles -ifile {input_file} -ofile {output_file} -endpoints {endpoints}'
-    
-    # Execute the command
-    run_vmtk_command(command)
-    
-    # If rendering is requested, display the results
-    if render_results:
-        render_command = f'vmtksurfacereader -ifile {input_file} --pipe vmtkcenterlines -seedselector openprofiles --pipe vmtkrenderer --pipe vmtksurfaceviewer -opacity 0.25 --pipe vmtksurfaceviewer -i @vmtkcenterlines.o -array MaximumInscribedSphereRadius'
-        run_vmtk_command(render_command)
+    image   = vtk.vtkImageData()
+    image.SetSpacing(spacing)
+    image.SetDimensions(dims)
+    image.SetOrigin(bounds[0], bounds[2], bounds[4])
+    image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+    image.GetPointData().GetScalars().Fill(1)      # remplissage initial = 1
 
-def visualize_voronoi_diagram(input_file, centerlines_file=None):
-    """
-    Visualize the Voronoi diagram with centerlines.
-    
-    Parameters:
-    -----------
-    input_file : str
-        Path to the input surface model file
-    centerlines_file : str, optional
-        Path to the centerlines file, if already computed
-    """
-    if centerlines_file:
-        # If centerlines are already computed, load them
-        command = f'vmtksurfacereader -ifile {input_file} --pipe vmtkcenterlinereader -ifile {centerlines_file} --pipe vmtkrenderer --pipe vmtksurfaceviewer -opacity 0.25 --pipe vmtksurfaceviewer -i @vmtkcenterlinereader.voronoidiagram -array MaximumInscribedSphereRadius --pipe vmtksurfaceviewer -i @vmtkcenterlinereader.o'
-    else:
-        # Compute centerlines on the fly and visualize
-        command = f'vmtksurfacereader -ifile {input_file} --pipe vmtkcenterlines --pipe vmtkrenderer --pipe vmtksurfaceviewer -opacity 0.25 --pipe vmtksurfaceviewer -i @vmtkcenterlines.voronoidiagram -array MaximumInscribedSphereRadius --pipe vmtksurfaceviewer -i @vmtkcenterlines.o'
-    
-    run_vmtk_command(command)
+    stenciler = vtk.vtkPolyDataToImageStencil()
+    stenciler.SetInputData(polydata)
+    stenciler.SetOutputOrigin(image.GetOrigin())
+    stenciler.SetOutputSpacing(spacing)
+    stenciler.SetOutputWholeExtent(image.GetExtent())
+    stenciler.Update()
 
-def main():
-    # Create argument parser
-    parser = argparse.ArgumentParser(description='Extract centerlines from vascular models using VMTK')
-    parser.add_argument('-i', '--input', required=True, help='Input surface model file (.vtp or .stl)')
-    parser.add_argument('-o', '--output', help='Output centerlines file (.vtp). If not specified, will use inputname_centerlines.vtp')
-    parser.add_argument('--method', choices=['manual', 'openprofiles'], default='manual',
-                        help='Method for selecting endpoints: manual or openprofiles')
-    parser.add_argument('--endpoints', type=int, default=1, help='Append endpoints segments (1) or not (0)')
-    parser.add_argument('--render', action='store_true', help='Render results after extraction')
-    parser.add_argument('--voronoi', action='store_true', help='Visualize Voronoi diagram with centerlines')
-    
-    # Parse arguments
-    args = parser.parse_args()
-    
-    # Generate output filename if not specified
-    if args.output is None:
-        base_name = os.path.splitext(args.input)[0]
-        args.output = f"{base_name}_centerlines.vtp"
-        print(f"Output file not specified. Using: {args.output}")
-    
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(args.output)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Created output directory: {output_dir}")
-    
-    # Check if input file exists
-    if not os.path.isfile(args.input):
-        print(f"Error: Input file '{args.input}' does not exist.")
-        return 1
-    
-    # Convert STL to VTP if necessary
-    input_file_vtp = args.input
-    if args.input.endswith('.stl'):
-        input_file_vtp = convert_stl_to_vtp(args.input)
-        if not input_file_vtp or not os.path.exists(input_file_vtp):
-            print("Échec de la conversion STL vers VTP.")
-            return 1
-    
-    success = False
-    # Extract centerlines
-    if args.method == 'manual':
-        success = extract_centerlines_manual(input_file_vtp, args.output, args.endpoints, args.render)
-    else:  # openprofiles
-        print("La méthode 'openprofiles' n'est pas implémentée dans cette version.")
-        # success = extract_centerlines_openprofiles(input_file_vtp, args.output, args.endpoints, args.render)
-    
-    if success:
-        print(f"Centerlines successfully extracted and saved to {args.output}")
-        # Visualize Voronoi diagram if requested
-        if args.voronoi:
-            visualize_voronoi_diagram(args.input, args.output)
-    else:
-        print("Échec de l'extraction des centerlines.")
-        return 1
-    
-    return 0
+    img_stencil = vtk.vtkImageStencil()
+    img_stencil.SetInputData(image)
+    img_stencil.SetStencilConnection(stenciler.GetOutputPort())
+    img_stencil.ReverseStencilOff()                # conserve l’intérieur = 1
+    img_stencil.SetBackgroundValue(0)              # extérieur = 0
+    img_stencil.Update()
 
-if __name__ == "__main__":
-    sys.exit(main())
+    binary_vtk = img_stencil.GetOutput()           # masque binaire intérieur
+
+    print("Binary mask stats:")
+    print("Dimensions:", binary_vtk.GetDimensions())
+    print("Scalar range:", binary_vtk.GetScalarRange())  # Devrait être (0, 1)
+
+    print("Étape 3 : conversion ITK")
+    # ---------- Conversion VTK -> ITK ----------
+    dims = binary_vtk.GetDimensions()
+    vtk_array = numpy_support.vtk_to_numpy(binary_vtk.GetPointData().GetScalars())
+    vtk_array = vtk_array.reshape(dims[2], dims[1], dims[0])  # z,y,x
+    # Forcer la binarisation et le type uint8
+    vtk_array = (vtk_array > 0).astype(np.uint8)
+    itk_image = itk.image_from_array(vtk_array)
+    itk_image.SetSpacing(spacing)
+    itk_image.SetOrigin(binary_vtk.GetOrigin())
+
+    print("ITK image type:", type(itk_image))
+    print("ITK image shape:", itk_image.GetBufferedRegion().GetSize())
+    print("ITK image pixel type:", itk.template(itk_image)[1])
+    print("ITK image min/max:", np.min(vtk_array), np.max(vtk_array))
+
+    print("ITK version:", itk.Version.GetITKVersion())
+
+    print("Étape 4 : thinning (SimpleITK)")
+    # ---------- Thinning SimpleITK ----------
+    print("→ Appliquer BinaryThinningImageFilter (SimpleITK)")
+    sitk_img = sitk.GetImageFromArray(vtk_array.astype('uint8'))
+    sitk_img.SetSpacing(spacing)
+    sitk_thinner = sitk.BinaryThinningImageFilter()
+    skeleton_sitk = sitk_thinner.Execute(sitk_img)
+    print("✓ Thinning SimpleITK terminé")
+
+    # 3) Reconversion SimpleITK→VTK
+    skel_np = sitk.GetArrayFromImage(skeleton_sitk)  # z,y,x
+    out_vtk = vtk.vtkImageData()
+    out_vtk.SetSpacing(spacing)
+    out_vtk.SetDimensions(skel_np.shape[::-1])     # x,y,z
+    out_vtk.SetOrigin(itk_image.GetOrigin())
+
+    flat = skel_np.ravel()
+    vtk_skel_arr = numpy_support.numpy_to_vtk(num_array=flat, deep=1,
+                                              array_type=vtk.VTK_UNSIGNED_CHAR)
+    out_vtk.GetPointData().SetScalars(vtk_skel_arr)
+
+    # ---------- Skeleton -> PolyData via VTK ----------
+    contour = vtk.vtkContourFilter()
+    contour.SetInputData(out_vtk)
+    contour.SetValue(0, 1)  # isosurface à 1
+    contour.Update()
+    centerlines = contour.GetOutput()
+
+    # ---------- Écriture centre-lines ----------
+    writer = vtk.vtkXMLPolyDataWriter()
+    writer.SetFileName(args.output)
+    writer.SetInputData(centerlines)
+    writer.Write()
+
+    print(f"✓ Centre-lines extraites : {centerlines.GetNumberOfLines()} branches")
+    print(f"→ Fichier enregistré : {args.output}")
+
+except Exception as e:
+    import traceback
+    print("Erreur capturée :", e)
+    traceback.print_exc()
