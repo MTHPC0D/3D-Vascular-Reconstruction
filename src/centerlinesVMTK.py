@@ -393,6 +393,117 @@ centerlines = vtk.vtkPolyData()
 centerlines.SetPoints(points)
 centerlines.SetLines(lines)
 
+# Export des lignes centrales brutes (avant lissage)
+writer_raw = vtk.vtkXMLPolyDataWriter()
+writer_raw.SetFileName("output/centerlines_raw.vtp")
+writer_raw.SetInputData(centerlines)
+writer_raw.Write()
+logger.info("→ Export output/centerlines_raw.vtp (avant lissage)")
+
+# 9bis. Lissage des lignes centrales pour éliminer les micro-oscillations --------
+logger.info("Application du lissage pour éliminer les micro-oscillations...")
+
+if do_smooth:
+    # Méthode 1: Lissage VTK (préserve la topologie)
+    smoother = vtk.vtkSmoothPolyDataFilter()
+    smoother.SetInputData(centerlines)
+    smoother.SetNumberOfIterations(20)  # Nombre d'itérations de lissage
+    smoother.SetRelaxationFactor(0.1)   # Facteur de relaxation (0.0-1.0)
+    smoother.SetFeatureAngle(60.0)      # Préserve les angles < 60°
+    smoother.FeatureEdgeSmoothingOff()  # Ne pas lisser les arêtes importantes
+    smoother.BoundarySmoothingOn()      # Lisser les bords
+    smoother.Update()
+    
+    centerlines_smooth1 = smoother.GetOutput()
+    
+    # Export du lissage VTK
+    writer_smooth1 = vtk.vtkXMLPolyDataWriter()
+    writer_smooth1.SetFileName("output/centerlines_smooth1_vtk.vtp")
+    writer_smooth1.SetInputData(centerlines_smooth1)
+    writer_smooth1.Write()
+    logger.info("→ Export output/centerlines_smooth1_vtk.vtp (lissage VTK)")
+    
+    # Méthode 2: Spline filter pour un lissage plus avancé
+    spline = vtk.vtkSplineFilter()
+    spline.SetInputData(centerlines_smooth1)
+    spline.SetSubdivideToLength()
+    spline.SetLength(voxel_size_mm * 0.5)  # Subdivision plus fine que les voxels
+    spline.Update()
+    
+    centerlines_smooth2 = spline.GetOutput()
+    
+    # Export du lissage par spline
+    writer_smooth2 = vtk.vtkXMLPolyDataWriter()
+    writer_smooth2.SetFileName("output/centerlines_smooth2_spline.vtp")
+    writer_smooth2.SetInputData(centerlines_smooth2)
+    writer_smooth2.Write()
+    logger.info("→ Export output/centerlines_smooth2_spline.vtp (lissage spline)")
+    
+    # Méthode 3: Lissage personnalisé par segment pour préserver les bifurcations
+    def smooth_branch_coords(coords, iterations=3, alpha=0.3):
+        """Lissage par moyenne pondérée préservant les extrémités"""
+        smooth_coords = coords.copy()
+        for _ in range(iterations):
+            new_coords = smooth_coords.copy()
+            # Ne pas modifier les points de début et fin (bifurcations)
+            for i in range(1, len(smooth_coords) - 1):
+                # Moyenne pondérée avec les voisins
+                prev_pt = smooth_coords[i-1]
+                curr_pt = smooth_coords[i]
+                next_pt = smooth_coords[i+1]
+                
+                # Nouveau point = mélange du point actuel et de la moyenne des voisins
+                avg_neighbors = (prev_pt + next_pt) / 2
+                new_coords[i] = (1 - alpha) * curr_pt + alpha * avg_neighbors
+            smooth_coords = new_coords
+        return smooth_coords
+    
+    # Créer une version lissée branche par branche
+    smooth_points = vtk.vtkPoints()
+    smooth_lines = vtk.vtkCellArray()
+    point_id = 0
+    
+    for b in branches:
+        # Récupérer les coordonnées de la branche
+        branch_coords = np.array([world(idx[vid]) for vid in b])
+        
+        # Appliquer le lissage personnalisé seulement si la branche a plus de 3 points
+        if len(branch_coords) > 3:
+            smoothed_coords = smooth_branch_coords(branch_coords, iterations=3, alpha=0.2)
+        else:
+            smoothed_coords = branch_coords
+        
+        # Ajouter les points lissés
+        branch_point_ids = []
+        for coord in smoothed_coords:
+            smooth_points.InsertNextPoint(*coord)
+            branch_point_ids.append(point_id)
+            point_id += 1
+        
+        # Créer la ligne
+        poly = vtk.vtkPolyLine()
+        poly.GetPointIds().SetNumberOfIds(len(branch_point_ids))
+        for i, pid in enumerate(branch_point_ids):
+            poly.GetPointIds().SetId(i, pid)
+        smooth_lines.InsertNextCell(poly)
+    
+    centerlines_smooth3 = vtk.vtkPolyData()
+    centerlines_smooth3.SetPoints(smooth_points)
+    centerlines_smooth3.SetLines(smooth_lines)
+    
+    # Export du lissage personnalisé
+    writer_smooth3 = vtk.vtkXMLPolyDataWriter()
+    writer_smooth3.SetFileName("output/centerlines_smooth3_custom.vtp")
+    writer_smooth3.SetInputData(centerlines_smooth3)
+    writer_smooth3.Write()
+    logger.info("→ Export output/centerlines_smooth3_custom.vtp (lissage personnalisé)")
+    
+    # Utiliser le lissage par spline comme résultat final (bon compromis)
+    centerlines = centerlines_smooth2
+    logger.info("✓ Lissage appliqué : utilisation du lissage par spline")
+else:
+    logger.info("Lissage désactivé")
+
 # Vérifier l'alignement des boîtes englobantes
 bounds_stl = stl_poly.GetBounds()  # [xmin,xmax,ymin,ymax,zmin,zmax]
 
