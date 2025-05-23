@@ -371,7 +371,7 @@ def main():
     
     try:
         # Calculer les indicateurs
-        analyzer = VascularIndicators(args.vtp)
+        analyzer = VascularIndicators(vtp_file)
         indicators = analyzer.calculate_all_indicators()
         
         # Sauvegarder les résultats

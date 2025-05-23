@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont
 
+from .vtk_widget import VTKWidget
+
 class MainWidget(QWidget):
     def __init__(self, controller):
         super().__init__()
@@ -28,30 +30,8 @@ class MainWidget(QWidget):
         # Splitter principal
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Côté gauche - Zone de visualisation (pour plus tard)
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        
-        # Placeholder pour VTK widget
-        vtk_placeholder = QLabel("Zone de visualisation 3D\n(VTK Widget)")
-        vtk_placeholder.setStyleSheet("""
-            QLabel {
-                background-color: #1e1e1e;
-                border: 2px dashed #555;
-                border-radius: 6px;
-                color: #888;
-                font-size: 16px;
-                text-align: center;
-            }
-        """)
-        vtk_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        vtk_placeholder.setMinimumSize(600, 400)
-        left_layout.addWidget(vtk_placeholder)
-        
-        # Bouton télécharger mesh
-        self.download_button = QPushButton("Télécharger Mesh")
-        self.download_button.setEnabled(False)
-        left_layout.addWidget(self.download_button)
+        # Côté gauche - Zone de visualisation VTK
+        self.vtk_widget = VTKWidget()
         
         # Côté droit - Contrôles
         right_widget = QWidget()
@@ -72,7 +52,7 @@ class MainWidget(QWidget):
         self.create_log_console(right_layout)
         
         # Ajout au splitter
-        splitter.addWidget(left_widget)
+        splitter.addWidget(self.vtk_widget)
         splitter.addWidget(right_widget)
         splitter.setSizes([800, 600])  # Proportions initiales
         
@@ -104,10 +84,19 @@ class MainWidget(QWidget):
         group = QGroupBox("Métriques de comparaison")
         layout = QVBoxLayout(group)
         
-        # Bouton export CSV
-        export_button = QPushButton("Exporter CSV")
-        export_button.setEnabled(False)
-        layout.addWidget(export_button)
+        # Boutons d'export
+        buttons_layout = QHBoxLayout()
+        
+        self.export_csv_button = QPushButton("Exporter CSV")
+        self.export_csv_button.setEnabled(False)
+        self.export_csv_button.clicked.connect(self.export_metrics_csv)
+        buttons_layout.addWidget(self.export_csv_button)
+        
+        self.screenshot_button = QPushButton("Capture 3D")
+        self.screenshot_button.clicked.connect(self.take_screenshot)
+        buttons_layout.addWidget(self.screenshot_button)
+        
+        layout.addLayout(buttons_layout)
         
         # Table
         self.metrics_table = QTableWidget(0, 3)
@@ -135,6 +124,10 @@ class MainWidget(QWidget):
         self.controller.progress_updated.connect(self.update_progress)
         self.controller.log_message.connect(self.append_log)
         self.controller.results_ready.connect(self.update_metrics_table)
+        self.controller.mesh_ready.connect(self.update_vtk_visualization)
+        
+        # Connecter le signal de téléchargement du mesh
+        self.vtk_widget.mesh_download_requested.connect(self.download_mesh)
     
     def on_file_dropped(self, file_path, file_type):
         """Appelé quand un fichier est déposé"""
@@ -174,11 +167,30 @@ class MainWidget(QWidget):
         html_message = f'<span style="color: {color};">[{level.upper()}] {message}</span>'
         self.log_console.append(html_message)
     
+    def update_vtk_visualization(self, recon_path, gt_path, centerlines_path):
+        """Met à jour la visualisation VTK"""
+        self.append_log("Mise à jour de la visualisation 3D...", "info")
+        
+        # Calculer le Dice score depuis les résultats de comparaison si disponible
+        dice_score = self.get_dice_score_from_results()
+        
+        # Mettre à jour les acteurs VTK
+        self.vtk_widget.update_actors(recon_path, gt_path, centerlines_path, dice_score)
+        
+        self.append_log("Visualisation 3D mise à jour", "success")
+    
+    def get_dice_score_from_results(self):
+        """Récupère le Dice score depuis les résultats de comparaison"""
+        # Pour l'instant, retourner None. Plus tard, on pourra lire depuis un fichier de résultats
+        # ou passer cette information via le contrôleur
+        return None
+    
     def update_metrics_table(self, json_path):
         """Met à jour la table des métriques depuis le JSON"""
         try:
             indicators = self.controller.load_indicators(json_path)
             self.populate_metrics_table(indicators)
+            self.export_csv_button.setEnabled(True)
         except Exception as e:
             self.append_log(f"Erreur lors de la mise à jour des métriques: {str(e)}", "error")
     
@@ -214,6 +226,77 @@ class MainWidget(QWidget):
             self.metrics_table.setItem(i, 0, QTableWidgetItem(name))
             self.metrics_table.setItem(i, 1, QTableWidgetItem(value))
             self.metrics_table.setItem(i, 2, QTableWidgetItem(info))
+    
+    def export_metrics_csv(self):
+        """Exporte les métriques en CSV"""
+        if self.metrics_table.rowCount() == 0:
+            QMessageBox.warning(self, "Aucune donnée", "Aucune métrique à exporter.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Exporter les métriques", 
+            "metriques_vasculaires.csv", 
+            "Fichiers CSV (*.csv)")
+        
+        if file_path:
+            try:
+                import csv
+                with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    # En-têtes
+                    writer.writerow(["Métrique", "Valeur", "Description"])
+                    
+                    # Données
+                    for row in range(self.metrics_table.rowCount()):
+                        row_data = []
+                        for col in range(self.metrics_table.columnCount()):
+                            item = self.metrics_table.item(row, col)
+                            row_data.append(item.text() if item else "")
+                        writer.writerow(row_data)
+                
+                self.append_log(f"Métriques exportées vers: {file_path}", "success")
+                QMessageBox.information(self, "Export réussi", f"Métriques exportées vers:\n{file_path}")
+                
+            except Exception as e:
+                self.append_log(f"Erreur lors de l'export CSV: {str(e)}", "error")
+                QMessageBox.critical(self, "Erreur d'export", f"Impossible d'exporter le CSV:\n{str(e)}")
+    
+    def download_mesh(self):
+        """Télécharge le mesh reconstruit"""
+        if not os.path.exists(self.controller.recon_mesh_path):
+            QMessageBox.warning(self, "Fichier introuvable", "Aucun mesh reconstruit disponible.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Sauvegarder le mesh", 
+            "mesh_reconstruit.stl", 
+            "Fichiers STL (*.stl);;Fichiers PLY (*.ply)")
+        
+        if file_path:
+            try:
+                import shutil
+                shutil.copy2(self.controller.recon_mesh_path, file_path)
+                self.append_log(f"Mesh sauvegardé vers: {file_path}", "success")
+                QMessageBox.information(self, "Sauvegarde réussie", f"Mesh sauvegardé vers:\n{file_path}")
+            except Exception as e:
+                self.append_log(f"Erreur lors de la sauvegarde: {str(e)}", "error")
+                QMessageBox.critical(self, "Erreur de sauvegarde", f"Impossible de sauvegarder le mesh:\n{str(e)}")
+    
+    def take_screenshot(self):
+        """Prend une capture d'écran de la vue 3D"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Sauvegarder la capture", 
+            "vue_3d.png", 
+            "Images PNG (*.png)")
+        
+        if file_path:
+            try:
+                self.vtk_widget.export_screenshot(file_path)
+                self.append_log(f"Capture sauvegardée vers: {file_path}", "success")
+                QMessageBox.information(self, "Capture réussie", f"Capture sauvegardée vers:\n{file_path}")
+            except Exception as e:
+                self.append_log(f"Erreur lors de la capture: {str(e)}", "error")
+                QMessageBox.critical(self, "Erreur de capture", f"Impossible de sauvegarder la capture:\n{str(e)}")
     
     def open_nifti_dialog(self):
         """Ouvre un dialogue pour sélectionner un fichier NIfTI"""
