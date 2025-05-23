@@ -17,6 +17,7 @@ class VTKWidget(QWidget):
     
     def __init__(self):
         super().__init__()
+        self.is_dark_theme = False
         self.setup_ui()
         self.setup_vtk()
         
@@ -37,32 +38,32 @@ class VTKWidget(QWidget):
         controls_layout = QHBoxLayout()
         
         # Bouton télécharger mesh
-        self.download_button = QPushButton("Télécharger Mesh")
+        self.download_button = QPushButton("Télécharger")
         self.download_button.setEnabled(False)
         self.download_button.clicked.connect(self.mesh_download_requested.emit)
         controls_layout.addWidget(self.download_button)
         
         # Boutons de contrôle de visibilité
-        self.toggle_recon_button = QPushButton("Mesh Reconstruit")
+        self.toggle_recon_button = QPushButton("Reconstruit")
         self.toggle_recon_button.setCheckable(True)
         self.toggle_recon_button.setChecked(True)
         self.toggle_recon_button.clicked.connect(self.toggle_recon_visibility)
         controls_layout.addWidget(self.toggle_recon_button)
         
-        self.toggle_gt_button = QPushButton("Ground Truth")
+        self.toggle_gt_button = QPushButton("Reference")
         self.toggle_gt_button.setCheckable(True)
         self.toggle_gt_button.setChecked(True)
         self.toggle_gt_button.clicked.connect(self.toggle_gt_visibility)
         controls_layout.addWidget(self.toggle_gt_button)
         
-        self.toggle_centerlines_button = QPushButton("Lignes Centrales")
+        self.toggle_centerlines_button = QPushButton("Centerlines")
         self.toggle_centerlines_button.setCheckable(True)
         self.toggle_centerlines_button.setChecked(True)
         self.toggle_centerlines_button.clicked.connect(self.toggle_centerlines_visibility)
         controls_layout.addWidget(self.toggle_centerlines_button)
         
         # Bouton reset vue
-        reset_button = QPushButton("Reset Vue")
+        reset_button = QPushButton("Reset")
         reset_button.clicked.connect(self.reset_camera)
         controls_layout.addWidget(reset_button)
         
@@ -70,9 +71,9 @@ class VTKWidget(QWidget):
         
     def setup_vtk(self):
         """Configure le pipeline VTK"""
-        # Renderer
+        # Renderer avec fond adaptatif
         self.renderer = vtk.vtkRenderer()
-        self.renderer.SetBackground(0.1, 0.1, 0.1)  # Fond sombre
+        self.update_background()
         
         # Ajouter une lumière
         light = vtk.vtkLight()
@@ -90,7 +91,50 @@ class VTKWidget(QWidget):
         # Style d'interaction (trackball camera)
         style = vtk.vtkInteractorStyleTrackballCamera()
         self.interactor.SetInteractorStyle(style)
+    
+    def update_theme(self, dark=False):
+        """Met à jour le thème du widget VTK"""
+        self.is_dark_theme = dark
+        self.update_background()
+        self.update_mesh_colors()
+        self.render_window.Render()
+    
+    def update_background(self):
+        """Met à jour la couleur de fond selon le thème"""
+        if self.is_dark_theme:
+            self.renderer.SetBackground(0.1, 0.1, 0.1)  # Fond sombre
+        else:
+            self.renderer.SetBackground(0.95, 0.95, 0.95)  # Fond clair
+    
+    def update_mesh_colors(self):
+        """Met à jour les couleurs des meshes selon le thème"""
+        if self.recon_actor:
+            if self.is_dark_theme:
+                # COULEUR MESH RECONSTRUIT THÈME SOMBRE - Changez ici pour modifier
+                self.recon_actor.GetProperty().SetColor(1.0, 1.0, 1.0)  # Blanc pour thème sombre
+            else:
+                # COULEUR MESH RECONSTRUIT THÈME CLAIR - Changez ici pour modifier
+                self.recon_actor.GetProperty().SetColor(0.2, 0.4, 0.8)  # Bleu foncé pour thème clair
         
+        if self.gt_actor:
+            if self.is_dark_theme:
+                # COULEUR GROUND TRUTH THÈME SOMBRE - Changez ici pour modifier
+                self.gt_actor.GetProperty().SetColor(0.8, 0.8, 0.8)  # Gris clair pour thème sombre
+            else:
+                # COULEUR GROUND TRUTH THÈME CLAIR - Changez ici pour modifier
+                self.gt_actor.GetProperty().SetColor(0.4, 0.4, 0.4)  # Gris foncé pour thème clair
+    
+    def load_ground_truth_only(self, gt_path):
+        """Charge et affiche seulement le ground truth (pour prévisualisation)"""
+        if self.gt_actor:
+            self.renderer.RemoveActor(self.gt_actor)
+        
+        if gt_path and self.file_exists(gt_path):
+            self.gt_actor = self.create_gt_actor(gt_path)
+            self.renderer.AddActor(self.gt_actor)
+            self.renderer.ResetCamera()
+            self.render_window.Render()
+    
     def update_actors(self, recon_path=None, gt_path=None, centerlines_path=None, dice_score=None):
         """Met à jour les acteurs avec de nouveaux fichiers"""
         # Supprimer les anciens acteurs
@@ -127,7 +171,7 @@ class VTKWidget(QWidget):
         return os.path.exists(path)
     
     def create_mesh_actor(self, stl_path, dice_score=None):
-        """Crée un acteur pour le mesh reconstruit avec coloration basée sur le Dice score"""
+        """Crée un acteur pour le mesh reconstruit avec coloration adaptative"""
         # Lecteur STL
         reader = vtk.vtkSTLReader()
         reader.SetFileName(stl_path)
@@ -141,16 +185,13 @@ class VTKWidget(QWidget):
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
         
-        # Coloration basée sur le Dice score
-        if dice_score is not None:
-            if dice_score > 0.8:
-                color = (0.0, 0.8, 0.0)  # Vert pour un bon score
-            elif dice_score > 0.6:
-                color = (0.8, 0.8, 0.0)  # Jaune pour un score moyen
-            else:
-                color = (0.8, 0.0, 0.0)  # Rouge pour un mauvais score
+        # Coloration adaptative selon le thème
+        if self.is_dark_theme:
+            # COULEUR MESH RECONSTRUIT THÈME SOMBRE - Changez ici pour modifier
+            color = (1.0, 1.0, 1.0)  # Blanc pour thème sombre
         else:
-            color = (0.3, 0.6, 1.0)  # Bleu par défaut
+            # COULEUR MESH RECONSTRUIT THÈME CLAIR - Changez ici pour modifier
+            color = (0.2, 0.4, 0.8)  # Bleu foncé pour thème clair
         
         actor.GetProperty().SetColor(*color)
         actor.GetProperty().SetOpacity(0.8)
@@ -160,7 +201,7 @@ class VTKWidget(QWidget):
         return actor
     
     def create_gt_actor(self, stl_path):
-        """Crée un acteur pour le ground truth (semi-transparent)"""
+        """Crée un acteur pour le ground truth adaptatif au thème"""
         # Lecteur STL
         reader = vtk.vtkSTLReader()
         reader.SetFileName(stl_path)
@@ -173,7 +214,15 @@ class VTKWidget(QWidget):
         # Acteur
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
-        actor.GetProperty().SetColor(0.8, 0.8, 0.8)  # Gris
+        
+        # Couleur adaptative
+        if self.is_dark_theme:
+            # COULEUR GROUND TRUTH THÈME SOMBRE - Changez ici pour modifier
+            actor.GetProperty().SetColor(0.8, 0.8, 0.8)  # Gris clair pour thème sombre
+        else:
+            # COULEUR GROUND TRUTH THÈME CLAIR - Changez ici pour modifier
+            actor.GetProperty().SetColor(0.4, 0.4, 0.4)  # Gris foncé pour thème clair
+        
         actor.GetProperty().SetOpacity(0.3)  # Semi-transparent
         actor.GetProperty().SetRepresentationToWireframe()  # Wireframe pour distinction
         
@@ -200,6 +249,7 @@ class VTKWidget(QWidget):
         # Acteur
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
+        # COULEUR CENTERLINES - Changez ici pour modifier
         actor.GetProperty().SetColor(1.0, 0.0, 0.0)  # Rouge vif
         actor.GetProperty().SetSpecular(0.5)
         actor.GetProperty().SetSpecularPower(30)

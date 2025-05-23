@@ -32,8 +32,8 @@ class VascularController(QObject):
         self.centerlines_path = os.path.join(self.output_dir, "centerlines_vtk.vtp")
         self.indicators_path = os.path.join(self.output_dir, "vascular_indicators.json")
     
-    def process_files(self, nifti_path, gt_path):
-        """Lance le pipeline complet de traitement"""
+    def process_files(self, nifti_path, gt_path=None):
+        """Lance le pipeline complet de traitement (GT optionnel)"""
         self.log_message.emit("Début du traitement...", "info")
         self.current_progress = 0
         self.progress_updated.emit(0)
@@ -85,15 +85,15 @@ class WorkerSignals(QObject):
     error = pyqtSignal(str)
 
 class PipelineWorker(QRunnable):
-    def __init__(self, controller, nifti_path, gt_path):
+    def __init__(self, controller, nifti_path, gt_path=None):
         super().__init__()
         self.controller = controller
         self.nifti_path = nifti_path
-        self.gt_path = gt_path
+        self.gt_path = gt_path  # Peut être None
         self.signals = WorkerSignals()
     
     def run(self):
-        """Exécute le pipeline complet"""
+        """Exécute le pipeline complet (avec GT optionnel)"""
         try:
             # Étape 1: Génération du mesh (25%)
             self.signals.log.emit("Génération du mesh...", "info")
@@ -101,11 +101,15 @@ class PipelineWorker(QRunnable):
             self.signals.progress.emit(25)
             self.signals.step_finished.emit("mesh")
             
-            # Étape 2: Comparaison (50%)
-            self.signals.log.emit("Comparaison avec ground truth...", "info")
-            self.run_comparison()
-            self.signals.progress.emit(50)
-            self.signals.step_finished.emit("comparison")
+            # Étape 2: Comparaison (50%) - seulement si GT fourni
+            if self.gt_path:
+                self.signals.log.emit("Comparaison avec ground truth...", "info")
+                self.run_comparison()
+                self.signals.progress.emit(50)
+                self.signals.step_finished.emit("comparison")
+            else:
+                self.signals.log.emit("Pas de ground truth - comparaison ignorée", "info")
+                self.signals.progress.emit(50)
             
             # Étape 3: Extraction des centerlines (75%)
             self.signals.log.emit("Extraction des lignes centrales...", "info")
@@ -119,17 +123,20 @@ class PipelineWorker(QRunnable):
             self.signals.progress.emit(100)
             self.signals.step_finished.emit("indicators")
             
-            self.signals.finished.emit(self.gt_path)
+            self.signals.finished.emit(self.gt_path or "")
             
         except Exception as e:
             self.signals.error.emit(str(e))
     
     def run_mesh_generation(self):
         """Lance la génération du mesh"""
+        # Utiliser un GT dummy si pas fourni
+        gt_for_cmd = self.gt_path if self.gt_path else "dummy.stl"
+        
         cmd = [
             sys.executable, os.path.join("src", "process_nifti_to_stl.py"),
             "--nifti", self.nifti_path,
-            "--gt", self.gt_path,
+            "--gt", gt_for_cmd,
             "--out", self.controller.recon_mesh_path
         ]
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -137,7 +144,10 @@ class PipelineWorker(QRunnable):
             raise Exception(f"Erreur génération mesh: {result.stderr}")
     
     def run_comparison(self):
-        """Lance la comparaison"""
+        """Lance la comparaison (seulement si GT fourni)"""
+        if not self.gt_path:
+            return
+            
         cmd = [
             sys.executable, os.path.join("src", "comparaison.py"),
             "--recon", self.controller.recon_mesh_path,

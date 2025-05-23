@@ -7,9 +7,9 @@ import os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, 
                             QGroupBox, QLabel, QPushButton, QTableWidget, 
                             QTableWidgetItem, QTextEdit, QProgressBar, 
-                            QFileDialog, QMessageBox, QFrame)
+                            QFileDialog, QMessageBox, QFrame, QHeaderView)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPixmap
 
 from .vtk_widget import VTKWidget
 
@@ -30,15 +30,21 @@ class MainWidget(QWidget):
         # Splitter principal
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Côté gauche - Zone de visualisation VTK
+        # Côté gauche - Zone de visualisation VTK seulement
         self.vtk_widget = VTKWidget()
         
-        # Côté droit - Contrôles
+        # Côté droit - Contrôles avec header
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
+        # Header avec logo et titre en haut à droite
+        self.create_header_with_logo(right_layout)
+        
         # Zone drag & drop
         self.create_drag_drop_area(right_layout)
+        
+        # Bouton d'analyse
+        self.create_analysis_button(right_layout)
         
         # Table des métriques
         self.create_metrics_table(right_layout)
@@ -48,15 +54,46 @@ class MainWidget(QWidget):
         self.progress_bar.setVisible(False)
         right_layout.addWidget(self.progress_bar)
         
-        # Console de log
-        self.create_log_console(right_layout)
-        
         # Ajout au splitter
         splitter.addWidget(self.vtk_widget)
         splitter.addWidget(right_widget)
         splitter.setSizes([800, 600])  # Proportions initiales
         
         layout.addWidget(splitter)
+    
+    def create_header_with_logo(self, parent_layout):
+        """Crée un header avec le logo de l'application"""
+        header_layout = QHBoxLayout()
+        
+        # Logo
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "res", "logo.ico")
+        if os.path.exists(logo_path):
+            logo_label = QLabel()
+            pixmap = QPixmap(logo_path)
+            # Redimensionner le logo pour le header
+            scaled_pixmap = pixmap.scaled(50, 50, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+            header_layout.addWidget(logo_label)
+        
+        # Titre de l'application
+        title_label = QLabel("Reconstruction Vasculaire 3D")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                margin-left: 10px;
+            }
+        """)
+        header_layout.addWidget(title_label)
+        
+        header_layout.addStretch()  # Pousse le contenu vers la gauche
+        
+        # Widget conteneur pour le header
+        header_widget = QWidget()
+        header_widget.setLayout(header_layout)
+        header_widget.setMaximumHeight(70)
+        
+        parent_layout.addWidget(header_widget)
     
     def create_drag_drop_area(self, parent_layout):
         """Crée la zone de drag & drop pour les fichiers"""
@@ -67,8 +104,8 @@ class MainWidget(QWidget):
         nifti_frame = self.create_file_drop_frame("NIfTI", ".nii/.nii.gz", "nifti")
         layout.addWidget(nifti_frame)
         
-        # Zone Ground Truth STL
-        gt_frame = self.create_file_drop_frame("Ground Truth", ".stl", "gt")
+        # Zone Ground Truth STL (optionnelle)
+        gt_frame = self.create_file_drop_frame("Ground Truth (optionnel)", ".stl", "gt")
         layout.addWidget(gt_frame)
         
         parent_layout.addWidget(group)
@@ -79,12 +116,20 @@ class MainWidget(QWidget):
         frame.file_dropped.connect(self.on_file_dropped)
         return frame
     
+    def create_analysis_button(self, parent_layout):
+        """Crée le bouton pour lancer l'analyse"""
+        self.analysis_button = QPushButton("Lancer l'Analyse")
+        self.analysis_button.setEnabled(False)
+        self.analysis_button.setMinimumHeight(40)
+        self.analysis_button.clicked.connect(self.start_analysis)
+        parent_layout.addWidget(self.analysis_button)
+    
     def create_metrics_table(self, parent_layout):
-        """Crée la table des métriques"""
-        group = QGroupBox("Métriques de comparaison")
+        """Crée la table des métriques avec un design épuré"""
+        group = QGroupBox("Résultats d'analyse")
         layout = QVBoxLayout(group)
         
-        # Boutons d'export
+        # Boutons d'export en haut
         buttons_layout = QHBoxLayout()
         
         self.export_csv_button = QPushButton("Exporter CSV")
@@ -92,37 +137,39 @@ class MainWidget(QWidget):
         self.export_csv_button.clicked.connect(self.export_metrics_csv)
         buttons_layout.addWidget(self.export_csv_button)
         
-        self.screenshot_button = QPushButton("Capture 3D")
+        self.screenshot_button = QPushButton("Capture Écran")
         self.screenshot_button.clicked.connect(self.take_screenshot)
         buttons_layout.addWidget(self.screenshot_button)
         
+        buttons_layout.addStretch()  # Pousse les boutons vers la gauche
+        
         layout.addLayout(buttons_layout)
         
-        # Table
-        self.metrics_table = QTableWidget(0, 3)
-        self.metrics_table.setHorizontalHeaderLabels(["Métrique", "Valeur", "Info"])
-        self.metrics_table.horizontalHeader().setStretchLastSection(True)
+        # Table avec design épuré
+        self.metrics_table = QTableWidget(0, 2)  # Seulement 2 colonnes maintenant
+        self.metrics_table.setHorizontalHeaderLabels(["Métrique", "Valeur"])
+        
+        # Configuration du header pour un look moderne
+        header = self.metrics_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        
+        # Masquer les numéros de lignes
+        self.metrics_table.verticalHeader().setVisible(False)
+        
+        # Style épuré
+        self.metrics_table.setAlternatingRowColors(True)
+        self.metrics_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.metrics_table.setShowGrid(False)
+        
         layout.addWidget(self.metrics_table)
-        
-        parent_layout.addWidget(group)
-    
-    def create_log_console(self, parent_layout):
-        """Crée la console de log"""
-        group = QGroupBox("Console")
-        layout = QVBoxLayout(group)
-        
-        self.log_console = QTextEdit()
-        self.log_console.setReadOnly(True)
-        self.log_console.setMaximumHeight(150)
-        self.log_console.setFont(QFont("Consolas", 9))
-        layout.addWidget(self.log_console)
         
         parent_layout.addWidget(group)
     
     def connect_signals(self):
         """Connecte les signaux du contrôleur"""
         self.controller.progress_updated.connect(self.update_progress)
-        self.controller.log_message.connect(self.append_log)
+        self.controller.log_message.connect(self.log_to_console)
         self.controller.results_ready.connect(self.update_metrics_table)
         self.controller.mesh_ready.connect(self.update_vtk_visualization)
         
@@ -133,43 +180,63 @@ class MainWidget(QWidget):
         """Appelé quand un fichier est déposé"""
         if file_type == "nifti":
             self.nifti_path = file_path
-            self.append_log(f"Fichier NIfTI chargé: {os.path.basename(file_path)}", "info")
+            self.log_to_console(f"Fichier NIfTI chargé: {os.path.basename(file_path)}", "info")
         elif file_type == "gt":
             self.gt_path = file_path
-            self.append_log(f"Ground Truth chargé: {os.path.basename(file_path)}", "info")
+            self.log_to_console(f"Ground Truth chargé: {os.path.basename(file_path)}", "info")
+            # Afficher immédiatement le ground truth dans la vue 3D
+            self.vtk_widget.load_ground_truth_only(file_path)
         
-        # Vérifier si on peut lancer le traitement
-        self.check_ready_to_process()
+        # Vérifier si on peut activer le bouton d'analyse
+        self.check_analysis_ready()
     
-    def check_ready_to_process(self):
-        """Vérifie si on peut lancer le traitement"""
-        if self.nifti_path and self.gt_path:
-            self.append_log("Fichiers prêts. Lancement du traitement...", "info")
-            self.progress_bar.setVisible(True)
-            self.controller.process_files(self.nifti_path, self.gt_path)
+    def check_analysis_ready(self):
+        """Vérifie si on peut activer le bouton d'analyse"""
+        # L'analyse peut se lancer avec seulement le fichier NIfTI
+        if self.nifti_path:
+            self.analysis_button.setEnabled(True)
+            self.analysis_button.setText("Lancer l'Analyse")
+        else:
+            self.analysis_button.setEnabled(False)
+            self.analysis_button.setText("Lancer l'Analyse (NIfTI requis)")
+    
+    def start_analysis(self):
+        """Lance l'analyse manuellement"""
+        if not self.nifti_path:
+            QMessageBox.warning(self, "Fichier manquant", "Un fichier NIfTI est requis pour lancer l'analyse.")
+            return
+        
+        self.log_to_console("Lancement de l'analyse...", "info")
+        self.progress_bar.setVisible(True)
+        self.analysis_button.setEnabled(False)
+        self.analysis_button.setText("Analyse en cours...")
+        
+        # Lancer le traitement
+        self.controller.process_files(self.nifti_path, self.gt_path)
     
     def update_progress(self, value):
         """Met à jour la barre de progression"""
         self.progress_bar.setValue(value)
         if value == 100:
             self.progress_bar.setVisible(False)
+            self.analysis_button.setEnabled(True)
+            self.analysis_button.setText("Analyse terminée")
     
-    def append_log(self, message, level):
-        """Ajoute un message au log"""
-        colors = {
-            "info": "#ffffff",
-            "success": "#4CAF50",
-            "warning": "#FF9800",
-            "error": "#F44336"
-        }
-        color = colors.get(level, "#ffffff")
-        
-        html_message = f'<span style="color: {color};">[{level.upper()}] {message}</span>'
-        self.log_console.append(html_message)
+    def log_to_console(self, message, level):
+        """Affiche les logs dans la console VS Code au lieu de l'interface"""
+        # Afficher dans la console Python/VS Code
+        if level == "error":
+            print(f"❌ [ERREUR] {message}")
+        elif level == "success":
+            print(f"✅ [SUCCÈS] {message}")
+        elif level == "warning":
+            print(f"⚠️ [AVERTISSEMENT] {message}")
+        else:
+            print(f"ℹ️ [INFO] {message}")
     
     def update_vtk_visualization(self, recon_path, gt_path, centerlines_path):
         """Met à jour la visualisation VTK"""
-        self.append_log("Mise à jour de la visualisation 3D...", "info")
+        self.log_to_console("Mise à jour de la visualisation 3D...", "info")
         
         # Calculer le Dice score depuis les résultats de comparaison si disponible
         dice_score = self.get_dice_score_from_results()
@@ -177,12 +244,11 @@ class MainWidget(QWidget):
         # Mettre à jour les acteurs VTK
         self.vtk_widget.update_actors(recon_path, gt_path, centerlines_path, dice_score)
         
-        self.append_log("Visualisation 3D mise à jour", "success")
+        self.log_to_console("Visualisation 3D mise à jour", "success")
     
     def get_dice_score_from_results(self):
         """Récupère le Dice score depuis les résultats de comparaison"""
         # Pour l'instant, retourner None. Plus tard, on pourra lire depuis un fichier de résultats
-        # ou passer cette information via le contrôleur
         return None
     
     def update_metrics_table(self, json_path):
@@ -192,40 +258,52 @@ class MainWidget(QWidget):
             self.populate_metrics_table(indicators)
             self.export_csv_button.setEnabled(True)
         except Exception as e:
-            self.append_log(f"Erreur lors de la mise à jour des métriques: {str(e)}", "error")
+            self.log_to_console(f"Erreur lors de la mise à jour des métriques: {str(e)}", "error")
     
     def populate_metrics_table(self, indicators):
-        """Remplit la table avec les indicateurs"""
+        """Remplit la table avec les indicateurs dans un design épuré"""
         metrics = []
         
         # Tortuosité globale
         if indicators.get('global_tortuosity'):
             tort = indicators['global_tortuosity']
-            metrics.append(("Tortuosité globale", f"{tort['tortuosity']:.3f}", "Rapport longueur/distance euclidienne"))
+            metrics.append(("Tortuosité globale", f"{tort['tortuosity']:.3f}"))
         
         # Angles de décollage
         if indicators.get('takeoff_angles'):
             angles = [a['angle_degrees'] for a in indicators['takeoff_angles']]
             if angles:
                 import numpy as np
-                metrics.append(("Angle décollage moyen", f"{np.mean(angles):.1f}°", "Angle moyen des branches principales"))
+                metrics.append(("Angle décollage moyen", f"{np.mean(angles):.1f}°"))
         
         # Courbure maximale
         if indicators.get('maximum_curvature'):
             curv = indicators['maximum_curvature']
-            metrics.append(("Rayon minimal", f"{curv['min_radius_mm']:.1f} mm", "Plus petit rayon de courbure"))
+            metrics.append(("Rayon minimal", f"{curv['min_radius_mm']:.1f} mm"))
         
         # Type d'arche
         if indicators.get('aortic_arch_type'):
             arch = indicators['aortic_arch_type']
-            metrics.append(("Type d'arche", arch['type'], arch['description']))
+            metrics.append(("Type d'arche", arch['type']))
+        
+        # Nombre de branches
+        if indicators.get('takeoff_angles'):
+            metrics.append(("Nombre de branches", str(len(indicators['takeoff_angles']))))
         
         # Remplir la table
         self.metrics_table.setRowCount(len(metrics))
-        for i, (name, value, info) in enumerate(metrics):
-            self.metrics_table.setItem(i, 0, QTableWidgetItem(name))
-            self.metrics_table.setItem(i, 1, QTableWidgetItem(value))
-            self.metrics_table.setItem(i, 2, QTableWidgetItem(info))
+        for i, (name, value) in enumerate(metrics):
+            # Métrique avec style gras
+            name_item = QTableWidgetItem(name)
+            name_item.setFont(QFont("", 0, QFont.Weight.Bold))
+            self.metrics_table.setItem(i, 0, name_item)
+            
+            # Valeur
+            value_item = QTableWidgetItem(value)
+            self.metrics_table.setItem(i, 1, value_item)
+        
+        # Ajuster la hauteur des lignes
+        self.metrics_table.resizeRowsToContents()
     
     def export_metrics_csv(self):
         """Exporte les métriques en CSV"""
@@ -244,7 +322,7 @@ class MainWidget(QWidget):
                 with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
                     writer = csv.writer(csvfile)
                     # En-têtes
-                    writer.writerow(["Métrique", "Valeur", "Description"])
+                    writer.writerow(["Métrique", "Valeur"])
                     
                     # Données
                     for row in range(self.metrics_table.rowCount()):
@@ -254,11 +332,11 @@ class MainWidget(QWidget):
                             row_data.append(item.text() if item else "")
                         writer.writerow(row_data)
                 
-                self.append_log(f"Métriques exportées vers: {file_path}", "success")
+                self.log_to_console(f"Métriques exportées vers: {file_path}", "success")
                 QMessageBox.information(self, "Export réussi", f"Métriques exportées vers:\n{file_path}")
                 
             except Exception as e:
-                self.append_log(f"Erreur lors de l'export CSV: {str(e)}", "error")
+                self.log_to_console(f"Erreur lors de l'export CSV: {str(e)}", "error")
                 QMessageBox.critical(self, "Erreur d'export", f"Impossible d'exporter le CSV:\n{str(e)}")
     
     def download_mesh(self):
@@ -276,10 +354,10 @@ class MainWidget(QWidget):
             try:
                 import shutil
                 shutil.copy2(self.controller.recon_mesh_path, file_path)
-                self.append_log(f"Mesh sauvegardé vers: {file_path}", "success")
+                self.log_to_console(f"Mesh sauvegardé vers: {file_path}", "success")
                 QMessageBox.information(self, "Sauvegarde réussie", f"Mesh sauvegardé vers:\n{file_path}")
             except Exception as e:
-                self.append_log(f"Erreur lors de la sauvegarde: {str(e)}", "error")
+                self.log_to_console(f"Erreur lors de la sauvegarde: {str(e)}", "error")
                 QMessageBox.critical(self, "Erreur de sauvegarde", f"Impossible de sauvegarder le mesh:\n{str(e)}")
     
     def take_screenshot(self):
@@ -292,10 +370,10 @@ class MainWidget(QWidget):
         if file_path:
             try:
                 self.vtk_widget.export_screenshot(file_path)
-                self.append_log(f"Capture sauvegardée vers: {file_path}", "success")
+                self.log_to_console(f"Capture sauvegardée vers: {file_path}", "success")
                 QMessageBox.information(self, "Capture réussie", f"Capture sauvegardée vers:\n{file_path}")
             except Exception as e:
-                self.append_log(f"Erreur lors de la capture: {str(e)}", "error")
+                self.log_to_console(f"Erreur lors de la capture: {str(e)}", "error")
                 QMessageBox.critical(self, "Erreur de capture", f"Impossible de sauvegarder la capture:\n{str(e)}")
     
     def open_nifti_dialog(self):
@@ -324,6 +402,20 @@ class DropFrame(QFrame):
         """Configure l'interface du frame"""
         layout = QVBoxLayout(self)
         
+        # Icône selon le type de fichier
+        icon_label = QLabel()
+        if self.file_type == "nifti":
+            icon_text = "🧠"  # Icône cerveau pour NIfTI
+        elif self.file_type == "gt":
+            icon_text = "📐"  # Icône règle pour ground truth
+        else:
+            icon_text = "📁"  # Icône dossier par défaut
+        
+        icon_label.setText(icon_text)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setStyleSheet("font-size: 24px; margin: 5px;")
+        layout.addWidget(icon_label)
+        
         # Titre
         title_label = QLabel(self.title)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -333,7 +425,7 @@ class DropFrame(QFrame):
         # Extensions supportées
         ext_label = QLabel(self.extensions)
         ext_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ext_label.setStyleSheet("color: #888; font-size: 12px;")
+        ext_label.setStyleSheet("font-size: 12px; color: #666;")
         layout.addWidget(ext_label)
         
         # Zone de drop
@@ -348,17 +440,7 @@ class DropFrame(QFrame):
         
         # Style du frame
         self.setFrameStyle(QFrame.Shape.Box)
-        self.setStyleSheet("""
-            DropFrame {
-                border: 2px dashed #555;
-                border-radius: 6px;
-                background-color: #1e1e1e;
-                min-height: 120px;
-            }
-            DropFrame:hover {
-                border-color: #0078d4;
-            }
-        """)
+        self.setMinimumHeight(120)
     
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Gère l'entrée de fichiers par drag & drop"""
