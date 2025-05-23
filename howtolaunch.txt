@@ -1,0 +1,36 @@
+HOW TO INSTALL AND LAUNCH THE VIRTUAL ENVIRONMENT
+================================================
+
+Prerequisites:
+- Anaconda or Miniconda installed on your system
+
+Installation Steps:
+1. Open Anaconda Prompt or Terminal
+2. Navigate to the project directory:
+   cd "c:\dev\PythonProject\MedicalProject\3D-Vascular-Reconstruction"
+
+3. Create the environment from the YAML file:
+   conda env create -f environment.yml
+
+4. Activate the environment:
+   conda activate MedEnv
+
+5. Verify installation:
+   conda list
+
+To use the environment:
+- Always activate before running the project: conda activate MedEnv
+- To deactivate: conda deactivate
+- To remove environment: conda env remove -n MedEnv
+
+Troubleshooting:
+- If installation fails, try: conda clean --all
+- For channel conflicts, use: conda config --set channel_priority flexible
+- Update conda: conda update conda
+
+The environment includes all necessary packages for 3D vascular reconstruction including:
+- VTK, VMTK for medical image processing
+- Open3D for 3D data processing  
+- SimpleITK for medical imaging
+- Matplotlib, Plotly for visualization
+- CustomTkinter for GUI applications
