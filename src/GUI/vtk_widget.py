@@ -62,11 +62,6 @@ class VTKWidget(QWidget):
         self.toggle_centerlines_button.clicked.connect(self.toggle_centerlines_visibility)
         controls_layout.addWidget(self.toggle_centerlines_button)
         
-        # Bouton reset vue
-        reset_button = QPushButton("Reset")
-        reset_button.clicked.connect(self.reset_camera)
-        controls_layout.addWidget(reset_button)
-        
         layout.addLayout(controls_layout)
         
     def setup_vtk(self):

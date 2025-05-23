@@ -8,8 +8,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                             QGroupBox, QLabel, QPushButton, QTableWidget, 
                             QTableWidgetItem, QTextEdit, QProgressBar, 
                             QFileDialog, QMessageBox, QFrame, QHeaderView)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPixmap, QIcon, QPainter
+from PyQt6.QtSvg import QSvgRenderer
 
 from .vtk_widget import VTKWidget
 
@@ -86,7 +87,31 @@ class MainWidget(QWidget):
         """)
         header_layout.addWidget(title_label)
         
-        header_layout.addStretch()  # Pousse le contenu vers la gauche
+        header_layout.addStretch()  # Pousse le titre vers la gauche et le bouton vers la droite
+        
+        # Bouton de thème avec icônes Material Design
+        self.theme_button = QPushButton()
+        self.theme_button.setFixedSize(40, 40)
+        self.theme_button.setStyleSheet("""
+            QPushButton {
+                border-radius: 20px;
+                border: 2px solid #cccccc;
+                background-color: transparent;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #f0f0f0;
+                border-color: #0078d4;
+            }
+            QPushButton:pressed {
+                background-color: #e0e0e0;
+            }
+        """)
+        
+        # Créer l'icône soleil par défaut
+        self.update_theme_icon(False)
+        self.theme_button.clicked.connect(self.toggle_theme)
+        header_layout.addWidget(self.theme_button)
         
         # Widget conteneur pour le header
         header_widget = QWidget()
@@ -94,6 +119,81 @@ class MainWidget(QWidget):
         header_widget.setMaximumHeight(70)
         
         parent_layout.addWidget(header_widget)
+    
+    def create_svg_icon(self, svg_data, color="#1f1f1f"):
+        """Crée une QIcon à partir de données SVG"""
+        # Remplacer la couleur dans le SVG
+        svg_data = svg_data.replace('fill="#1f1f1f"', f'fill="{color}"')
+        
+        # Créer un pixmap à partir du SVG
+        renderer = QSvgRenderer()
+        renderer.load(svg_data.encode('utf-8'))
+        
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        
+        return QIcon(pixmap)
+    
+    def update_theme_icon(self, is_dark):
+        """Met à jour l'icône du bouton de thème"""
+        if is_dark:
+            # Icône lune
+            svg_moon = '''<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#1f1f1f"><path d="M480-120q-150 0-255-105T120-480q0-150 105-255t255-105q14 0 27.5 1t26.5 3q-41 29-65.5 75.5T444-660q0 90 63 153t153 63q55 0 101-24.5t75-65.5q2 13 3 26.5t1 27.5q0 150-105 255T480-120Zm0-80q88 0 158-48.5T740-375q-20 5-40 8t-40 3q-123 0-209.5-86.5T364-660q0-20 3-40t8-40q-78 32-126.5 102T200-480q0 116 82 198t198 82Zm-10-270Z"/></svg>'''
+            icon = self.create_svg_icon(svg_moon, "#ffffff")
+        else:
+            # Icône soleil
+            svg_sun = '''<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#1f1f1f"><path d="M480-360q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35Zm0 80q-83 0-141.5-58.5T280-480q0-83 58.5-141.5T480-680q83 0 141.5 58.5T680-480q0 83-58.5 141.5T480-280ZM200-440H40v-80h160v80Zm720 0H760v-80h160v80ZM440-760v-160h80v160h-80Zm0 720v-160h80v160h-80ZM256-650l-101-97 57-59 96 100-52 56Zm492 496-97-101 53-55 101 97-57 59Zm-98-550 97-101 59 57-100 96-56-52ZM154-212l101-97 55 53-97 101-59-57Zm326-268Z"/></svg>'''
+            icon = self.create_svg_icon(svg_sun, "#1f1f1f")
+        
+        self.theme_button.setIcon(icon)
+        self.theme_button.setIconSize(QSize(24, 24))
+    
+    def toggle_theme(self):
+        """Bascule le thème et met à jour l'icône du bouton"""
+        # Récupérer la fenêtre principale pour changer le thème
+        main_window = self.window()
+        if hasattr(main_window, 'toggle_theme'):
+            main_window.toggle_theme()
+            # Mettre à jour l'icône du bouton
+            if hasattr(main_window, 'is_dark_theme'):
+                self.update_theme_icon(main_window.is_dark_theme)
+                # Mettre à jour le style du bouton selon le thème
+                if main_window.is_dark_theme:
+                    self.theme_button.setStyleSheet("""
+                        QPushButton {
+                            border-radius: 20px;
+                            border: 2px solid #555;
+                            background-color: transparent;
+                            padding: 0px;
+                        }
+                        QPushButton:hover {
+                            background-color: #333;
+                            border-color: #0078d4;
+                        }
+                        QPushButton:pressed {
+                            background-color: #444;
+                        }
+                    """)
+                else:
+                    self.theme_button.setStyleSheet("""
+                        QPushButton {
+                            border-radius: 20px;
+                            border: 2px solid #cccccc;
+                            background-color: transparent;
+                            padding: 0px;
+                        }
+                        QPushButton:hover {
+                            background-color: #f0f0f0;
+                            border-color: #0078d4;
+                        }
+                        QPushButton:pressed {
+                            background-color: #e0e0e0;
+                        }
+                    """)
     
     def create_drag_drop_area(self, parent_layout):
         """Crée la zone de drag & drop pour les fichiers"""
@@ -401,20 +501,6 @@ class DropFrame(QFrame):
     def setup_ui(self):
         """Configure l'interface du frame"""
         layout = QVBoxLayout(self)
-        
-        # Icône selon le type de fichier
-        icon_label = QLabel()
-        if self.file_type == "nifti":
-            icon_text = "🧠"  # Icône cerveau pour NIfTI
-        elif self.file_type == "gt":
-            icon_text = "📐"  # Icône règle pour ground truth
-        else:
-            icon_text = "📁"  # Icône dossier par défaut
-        
-        icon_label.setText(icon_text)
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet("font-size: 24px; margin: 5px;")
-        layout.addWidget(icon_label)
         
         # Titre
         title_label = QLabel(self.title)

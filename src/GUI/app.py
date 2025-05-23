@@ -80,16 +80,6 @@ class VascularMainWindow(QMainWindow):
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
         
-        # Menu Vue
-        view_menu = menubar.addMenu('&Vue')
-        
-        theme_action = QAction('&Thème Sombre', self)
-        theme_action.setCheckable(True)
-        theme_action.setChecked(False)
-        theme_action.triggered.connect(self.toggle_theme)
-        view_menu.addAction(theme_action)
-        self.theme_action = theme_action
-        
         # Menu Aide
         help_menu = menubar.addMenu('&Aide')
         
@@ -107,12 +97,11 @@ class VascularMainWindow(QMainWindow):
         """Connecte les signaux entre composants"""
         # Connecter les logs du contrôleur à la barre de statut
         self.controller.status_message.connect(self.status_bar.showMessage)
-    
+
     def toggle_theme(self):
         """Bascule entre thème clair et sombre"""
         self.is_dark_theme = not self.is_dark_theme
         self.apply_theme(self.is_dark_theme)
-        self.theme_action.setText('&Thème Clair' if self.is_dark_theme else '&Thème Sombre')
         
         # Notifier le widget VTK du changement de thème
         self.main_widget.vtk_widget.update_theme(self.is_dark_theme)
