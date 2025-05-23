@@ -7,18 +7,9 @@ Calcul d'indicateurs vasculaires à partir de lignes centrales VTP
 import vtk
 import numpy as np
 import json
-import logging
 from scipy.spatial.distance import cdist
 from scipy.interpolate import UnivariateSpline
 import argparse
-
-# Configuration logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    datefmt="%H:%M:%S"
-)
-logger = logging.getLogger()
 
 class VascularIndicators:
     def __init__(self, vtp_file):
@@ -106,8 +97,6 @@ class VascularIndicators:
         
         tortuosity = path_length / euclidean_distance
         
-        logger.info(f"Tortuosité globale : {tortuosity:.3f} (chemin: {path_length:.1f}mm, euclidienne: {euclidean_distance:.1f}mm)")
-        
         return {
             'tortuosity': tortuosity,
             'path_length_mm': path_length,
@@ -126,7 +115,6 @@ class VascularIndicators:
     def calculate_takeoff_angles(self):
         """Calcule les angles de décollage des branches principales"""
         if not self.bifurcations:
-            logger.warning("Aucune bifurcation trouvée")
             return []
         
         takeoff_angles = []
@@ -166,10 +154,6 @@ class VascularIndicators:
                         'branch_direction': branch_direction
                     })
         
-        logger.info(f"Angles de décollage calculés : {len(takeoff_angles)} angles")
-        for angle_info in takeoff_angles:
-            logger.info(f"  Branche {angle_info['branch_index']}: {angle_info['angle_degrees']:.1f}°")
-        
         return takeoff_angles
     
     def calculate_bifurcation_angles(self):
@@ -207,10 +191,6 @@ class VascularIndicators:
                     'angles': angles,
                     'mean_angle': np.mean([a['angle_degrees'] for a in angles])
                 })
-        
-        logger.info(f"Angles de bifurcation calculés : {len(bifurcation_angles)} bifurcations")
-        for i, bif_info in enumerate(bifurcation_angles):
-            logger.info(f"  Bifurcation {i+1}: angle moyen {bif_info['mean_angle']:.1f}°")
         
         return bifurcation_angles
     
@@ -269,9 +249,8 @@ class VascularIndicators:
                     }
         
         if max_curvature_info:
-            logger.info(f"Courbure maximale : {max_curvature:.6f} (rayon minimal: {max_curvature_info['min_radius_mm']:.1f}mm)")
-        
-        return max_curvature_info
+            
+            return max_curvature_info
     
     def calculate_curvature_along_path(self, points):
         """Calcule la courbure le long d'un chemin de points"""
@@ -337,8 +316,6 @@ class VascularIndicators:
             arch_type = "Indéterminé"
             description = "Pas assez de bifurcations pour classifier"
         
-        logger.info(f"Type d'arche aortique : {arch_type} ({description})")
-        
         return {
             'type': arch_type,
             'description': description,
@@ -348,7 +325,6 @@ class VascularIndicators:
     
     def calculate_all_indicators(self):
         """Calcule tous les indicateurs"""
-        logger.info(f"Analyse des lignes centrales : {len(self.branches)} branches, {len(self.bifurcations)} bifurcations")
         
         indicators = {
             'global_tortuosity': self.calculate_global_tortuosity(),
@@ -380,14 +356,18 @@ class VascularIndicators:
         
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(json_indicators, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Résultats sauvegardés dans {output_file}")
 
 def main():
     parser = argparse.ArgumentParser(description='Calcul d\'indicateurs vasculaires à partir de lignes centrales VTP')
-    parser.add_argument('--vtp', default='output/centerlines_vtk.vtp', help='Fichier VTP des lignes centrales')
+    parser.add_argument('--vtp', help='Fichier VTP des lignes centrales (ancien paramètre)')
+    parser.add_argument('--input', help='Fichier VTP des lignes centrales')
     parser.add_argument('--output', default='output/vascular_indicators.json', help='Fichier de sortie JSON')
     args = parser.parse_args()
+    
+    # Compatibilité entre --vtp et --input
+    vtp_file = args.input if args.input else args.vtp
+    if not vtp_file:
+        vtp_file = 'output/centerlines_vtk.vtp'
     
     try:
         # Calculer les indicateurs
@@ -421,7 +401,6 @@ def main():
         print("="*60)
         
     except Exception as e:
-        logger.error(f"Erreur lors du calcul des indicateurs: {e}")
         raise
 
 if __name__ == "__main__":

@@ -6,29 +6,20 @@ Extraction optimisée de lignes centrales d'un STL vasculaire fermé
 
 import vtk
 import numpy as np
+import os
 from vtk.util.numpy_support import vtk_to_numpy
 from skimage.morphology import skeletonize_3d
 import networkx as nx
 import csv
-import logging
 from scipy.ndimage import binary_fill_holes
 
-# Configuration logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    datefmt="%H:%M:%S"
-)
-logger = logging.getLogger()
-
-# Paramètres
-stl_file = "output/output_final.stl"
-voxel_size_mm = 0.4
-spur_prune_mm = 1.0
-out_vtp = "output/centerlines_vtk.vtp"
-out_csv = "output/metrics_vtk.csv"
-do_smooth = True
-preserve_main_structure = True
+# Paramètres par défaut, peuvent être remplacés par des variables d'environnement
+stl_file = os.environ.get("CENTERLINES_STL_FILE", "output/output_final.stl")
+voxel_size_mm = float(os.environ.get("CENTERLINES_VOXEL_SIZE", "0.4"))
+spur_prune_mm = float(os.environ.get("CENTERLINES_SPUR_PRUNE", "1.0"))
+out_vtp = os.environ.get("CENTERLINES_OUT_VTP", "output/centerlines_vtk.vtp")
+do_smooth = os.environ.get("CENTERLINES_DO_SMOOTH", "True").lower() == "true"
+preserve_main_structure = os.environ.get("CENTERLINES_PRESERVE_MAIN", "True").lower() == "true"
 
 # 1. Lecture STL
 reader = vtk.vtkSTLReader()
@@ -49,8 +40,6 @@ image.SetSpacing(*spacing)
 image.SetDimensions(*dims)
 image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
 image.GetPointData().GetScalars().Fill(0)
-
-logger.info(f"Volume créé : dimensions={dims}, spacing={spacing}")
 
 pol2stenc = vtk.vtkPolyDataToImageStencil()
 pol2stenc.SetInputData(stl_poly)
@@ -78,12 +67,11 @@ vol = np.stack([
 ], axis=0)
 
 origin = np.array(image.GetOrigin())
-logger.info("Volume voxelisé et rempli")
+print("✅ Volume voxelisé et rempli")
 
 # 4. Squelettisation
 skeleton = skeletonize_3d(vol)
 idx = np.argwhere(skeleton)
-logger.info(f"Squelette : {len(idx)} voxels")
 
 def world(v):
     """Conversion voxel → coordonnées monde"""
@@ -99,8 +87,6 @@ for n, v in enumerate(idx):
         nb = tuple(v + d)
         if nb in voxel2i:
             G.add_edge(n, voxel2i[nb])
-
-logger.info(f"Graphe initial : {G.number_of_nodes()} nœuds, {G.number_of_edges()} arêtes")
 
 # 6. Élagage intelligent des spurs
 nodes_to_remove = set()
@@ -155,9 +141,6 @@ for leaf in [n for n in G.nodes if G.degree[n] == 1]:
 if nodes_to_remove:
     G.remove_nodes_from(nodes_to_remove)
 
-logger.info(f"Élagage : {spurs_removed} spurs supprimés, {spurs_preserved} préservés")
-logger.info(f"Après élagage : {G.number_of_nodes()} nœuds, {G.number_of_edges()} arêtes")
-
 # 7. Gestion des composants
 components = list(nx.connected_components(G))
 components_sizes = sorted([len(c) for c in components], reverse=True)
@@ -176,15 +159,12 @@ if preserve_main_structure and len(components) > 1:
         for comp in significant_components:
             all_significant_nodes.update(comp)
         G = G.subgraph(all_significant_nodes).copy()
-        logger.info(f"Préservé {len(significant_components)} composants significatifs")
     else:
         largest = max(components, key=len)
         G = G.subgraph(largest).copy()
-        logger.info("Gardé le plus grand composant")
 else:
     largest = max(components, key=len)
     G = G.subgraph(largest).copy()
-    logger.info("Gardé le plus grand composant")
 
 # 8. Extraction des segments
 branches = []
@@ -209,8 +189,6 @@ for u in key_nodes:
             visited_es.add((nxt, cur))
             prev, cur = cur, nxt
         branches.append(path)
-
-logger.info(f"Segments extraits : {len(branches)}")
 
 # 9. Construction des lignes centrales
 points = vtk.vtkPoints()
@@ -250,7 +228,7 @@ if do_smooth:
     spline.Update()
     
     centerlines = spline.GetOutput()
-    logger.info("✓ Lissage appliqué")
+    print("✅ Lissage appliqué")
 
 # 11. Export final
 writer = vtk.vtkXMLPolyDataWriter()
@@ -258,17 +236,4 @@ writer.SetFileName(out_vtp)
 writer.SetInputData(centerlines)
 writer.Write()
 
-logger.info(f"✅ Lignes centrales : {centerlines.GetNumberOfPoints()} points, {centerlines.GetNumberOfLines()} lignes")
-
-# 12. Métriques CSV
-with open(out_csv, "w", newline="") as f:
-    w = csv.writer(f)
-    w.writerow(["BranchID", "Length_mm", "Chord_mm", "Tortuosity"])
-    for bid, b in enumerate(branches):
-        coords = np.array([world(idx[i]) for i in b])
-        L = np.linalg.norm(np.diff(coords, axis=0), axis=1).sum()
-        C = np.linalg.norm(coords[0] - coords[-1])
-        tort = L/C if C > 0 else np.nan
-        w.writerow([bid, L, C, tort])
-
-logger.info(f"✅ Métriques dans {out_csv}")
+print(f"✅ Lignes centrales : {centerlines.GetNumberOfPoints()} points, {centerlines.GetNumberOfLines()} lignes")
