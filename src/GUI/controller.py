@@ -139,7 +139,11 @@ class PipelineWorker(QRunnable):
             "--gt", gt_for_cmd,
             "--out", self.controller.recon_mesh_path
         ]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        
+        # S'assurer d'être dans le bon répertoire de travail
+        cwd = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Remonter à la racine du projet
+        
+        result = subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
         if result.returncode != 0:
             raise Exception(f"Erreur génération mesh: {result.stderr}")
     
@@ -153,20 +157,36 @@ class PipelineWorker(QRunnable):
             "--recon", self.controller.recon_mesh_path,
             "--gt", self.gt_path
         ]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+          # S'assurer d'être dans le bon répertoire de travail
+        cwd = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Remonter à la racine du projet
+        
+        result = subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
         if result.returncode != 0:
             raise Exception(f"Erreur comparaison: {result.stderr}")
     
     def run_centerlines_extraction(self):
         """Lance l'extraction des centerlines"""
+        # Vérifier que le fichier STL existe
+        if not os.path.exists(self.controller.recon_mesh_path):
+            raise Exception(f"Fichier STL introuvable: {self.controller.recon_mesh_path}")
+        
         cmd = [sys.executable, os.path.join("src", "centerlinesVMTK.py")]
         env = os.environ.copy()
-        env["CENTERLINES_STL_FILE"] = self.controller.recon_mesh_path
-        env["CENTERLINES_OUT_VTP"] = self.controller.centerlines_path
+        env["CENTERLINES_STL_FILE"] = os.path.abspath(self.controller.recon_mesh_path)
+        env["CENTERLINES_OUT_VTP"] = os.path.abspath(self.controller.centerlines_path)
         
-        result = subprocess.run(cmd, env=env, check=True, capture_output=True, text=True)
+        # S'assurer d'être dans le bon répertoire de travail
+        cwd = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Remonter à la racine du projet
+        
+        # Debug: afficher les chemins
+        self.signals.log.emit(f"STL path: {env['CENTERLINES_STL_FILE']}", "info")
+        self.signals.log.emit(f"VTP path: {env['CENTERLINES_OUT_VTP']}", "info")
+        self.signals.log.emit(f"Working dir: {cwd}", "info")
+        
+        result = subprocess.run(cmd, env=env, cwd=cwd, check=False, capture_output=True, text=True)
         if result.returncode != 0:
-            raise Exception(f"Erreur extraction centerlines: {result.stderr}")
+            error_msg = f"Erreur extraction centerlines:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            raise Exception(error_msg)
     
     def run_indicators_calculation(self):
         """Lance le calcul des indicateurs"""
@@ -175,6 +195,10 @@ class PipelineWorker(QRunnable):
             "--vtp", self.controller.centerlines_path,
             "--output", self.controller.indicators_path
         ]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        
+        # S'assurer d'être dans le bon répertoire de travail
+        cwd = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Remonter à la racine du projet
+        
+        result = subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
         if result.returncode != 0:
             raise Exception(f"Erreur calcul indicateurs: {result.stderr}")

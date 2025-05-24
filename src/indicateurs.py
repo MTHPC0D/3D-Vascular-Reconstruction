@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Calcul d'indicateurs vasculaires à partir de lignes centrales VTP
-→ Tortuosité, angles de bifurcation/décollage, courbure, type d'arche aortique
+-> Tortuosite, angles de bifurcation/decollage, courbure, type d'arche aortique
 """
 
 import vtk

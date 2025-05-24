@@ -37,17 +37,15 @@ def compare_meshes():
 
     # === 4. Calcul des distances point-surface
     distances = points_pred.compute_point_cloud_distance(points_gt)
-    distances = np.asarray(distances)
-
-    # === 5. Métriques
-    print("✅ Comparaison terminée")
-    print(f"→ Distance moyenne (RMS): {np.mean(distances):.3f} mm")
-    print(f"→ Distance max (Hausdorff approx): {np.max(distances):.3f} mm")
+    distances = np.asarray(distances)    # === 5. Métriques
+    print("[SUCCESS] Comparaison terminee")
+    print(f"-> Distance moyenne (RMS): {np.mean(distances):.3f} mm")
+    print(f"-> Distance max (Hausdorff approx): {np.max(distances):.3f} mm")
 
     # Volume et surface (avec trimesh)
     tm_pred = trimesh.load_mesh(recon_path)
     tm_gt = trimesh.load_mesh(gt_path)
-    print(f"→ Ratio volume (Recon/GT): {tm_pred.volume / tm_gt.volume:.3f}")
+    print(f"-> Ratio volume (Recon/GT): {tm_pred.volume / tm_gt.volume:.3f}")
 
     # === 5b. Dice score (approximation surfacique)
     dice_threshold = 1.0  # mm, à ajuster selon la précision voulue
@@ -57,7 +55,7 @@ def compare_meshes():
     B_in_A = np.sum(distances_gt < dice_threshold)
     # Correction de la formule du Dice score
     dice = (A_in_B + B_in_A) / (len(points_pred.points) + len(points_gt.points))
-    print(f"→ Dice score (surface, seuil {dice_threshold} mm): {dice:.3f}")
+    print(f"-> Dice score (surface, seuil {dice_threshold} mm): {dice:.3f}")
 
     # === 6. Visualisation colorée des erreurs sur le maillage reconstruit
     colors = plt.cm.jet((distances - distances.min()) / (distances.max() - distances.min()))[:, :3]
