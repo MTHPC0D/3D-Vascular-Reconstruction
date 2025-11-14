@@ -2,8 +2,6 @@
 
 Application avancée de reconstruction et d'analyse de structures vasculaires à partir d'images médicales NIfTI. Ce projet propose une interface graphique intuitive pour générer des modèles 3D, extraire des lignes centrales et calculer des indicateurs cliniques pertinents.
 
-https://github.com/user-attachments/assets/595d1971-b54c-45ac-8d5a-96bea608e999
-
 ## Fonctionnalités
 
 ### Interface Graphique (GUI)
