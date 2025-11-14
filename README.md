@@ -4,17 +4,6 @@
 
 Application avancée de reconstruction et d'analyse de structures vasculaires à partir d'images médicales NIfTI. Ce projet propose une interface graphique intuitive pour générer des modèles 3D, extraire des lignes centrales et calculer des indicateurs cliniques pertinents.
 
-## Table des matières
-
-- [Fonctionnalités](#fonctionnalités)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Utilisation](#utilisation)
-- [Pipeline de traitement](#pipeline-de-traitement)
-- [Indicateurs calculés](#indicateurs-calculés)
-- [Structure du projet](#structure-du-projet)
-- [Technologies utilisées](#technologies-utilisées)
-- [Contribution](#contribution)
 
 ## Fonctionnalités
 
@@ -195,16 +184,6 @@ python src/visuligne.py --centerlines-only
 - **NumPy/SciPy**: Calculs numériques avancés
 - **Trimesh**: Manipulation de meshes 3D
 
-## Captures d'écran
-
-### Interface principale
-![GUI principale](docs/screenshots/main_gui.png)
-
-### Visualisation 3D
-![Vue 3D](docs/screenshots/3d_view.png)
-
-### Résultats d'analyse
-![Métriques](docs/screenshots/metrics.png)
 
 ## Format des données
 
